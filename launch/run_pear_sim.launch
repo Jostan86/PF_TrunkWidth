@@ -1,0 +1,23 @@
+<launch>
+
+    <include file="$(find sim_orchard_gazebo)/launch/orchard_world_pears.launch" >
+        <arg name="platform" value="husky" />
+    </include>
+    
+    <include file="$(find mobile_robotics)/launch/contoller_teleop.launch" >
+        <arg name="angular_scale" value="0.4" />
+        <arg name="linear_scale" value="0.5" />
+        <arg name="joy_dev" value="/dev/input/js1" />
+    </include>
+
+<!--    <node type="tree_location_sensor.py" name="image_filter_node" pkg="sim_pf_trunk_width"/>-->
+
+<!--    <node pkg="tf" type="static_transform_publisher" name="stfp" args="3 9 0.4 1.5707963 0 0 /map /odom 30"/>-->
+
+<!--    <node pkg="sim_pf_trunk_width" name="pose_ground_truth" type="pose_gt_pub.py" />-->
+
+<!--    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sim_pf_trunk_width)/config/localize.rviz"/>-->
+
+
+
+</launch>
