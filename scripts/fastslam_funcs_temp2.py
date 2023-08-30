@@ -137,7 +137,7 @@ def get_particle_weight_localize0(particle_states, sensed_tree_coords, widths_se
 
 
 def get_particle_weight_localize(particle_states, sensed_tree_coords, widths_sensed, kd_tree_map,
-                                 widths_map, match_thresh=0.7, width_threshold=0.025) -> np.ndarray:
+                                 widths_map, match_thresh=0.7, width_threshold=0.025, include_width=True) -> np.ndarray:
     """
 
     Parameters
@@ -159,6 +159,8 @@ def get_particle_weight_localize(particle_states, sensed_tree_coords, widths_sen
     width_threshold : float
         The maximum difference between the width of a tree sensed by the particle and a tree on the map for the two to
         be considered a match. Unit is meters
+    include_width : bool
+        Whether to include the width of the trees in the weight calculation.
 
     Returns
     -------
@@ -169,11 +171,13 @@ def get_particle_weight_localize(particle_states, sensed_tree_coords, widths_sen
     dist_sd = 0.35
     width_sd = 0.025
 
+    msgs = []
     # Get the starting time
     start_time = time.time()
 
     scores = np.ones(particle_states.shape[0], dtype=float)
     print("Widths:", widths_sensed)
+    msgs.append(("Widths:", widths_sensed))
 
     for i in range(len(sensed_tree_coords)):
 
@@ -181,11 +185,15 @@ def get_particle_weight_localize(particle_states, sensed_tree_coords, widths_sen
         width_diffs = np.abs((widths_sensed[i]-0.01) - (widths_map[idx]))
 
         prob_dist = probability_of_values(distances, 0, dist_sd)
-        prob_width = probability_of_values(width_diffs, 0, width_sd)
 
-        scores *= prob_dist * prob_width
+        scores *= prob_dist
+
+        if include_width:
+            prob_width = probability_of_values(width_diffs, 0, width_sd)
+            scores *= prob_width
 
     print("Time to calculate particle weights: ", time.time() - start_time)
+    msgs.append(("Time to calculate particle weights: ", time.time() - start_time))
     return scores
 
 def probability_of_values(arr, mean, std_dev):
