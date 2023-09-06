@@ -4,7 +4,8 @@ import os
 
 def extract_data_from_csvs(directory):
     # Define the header of the new csv file
-    header = ['File name', 'Overall Average Time Converged', 'Overall Average Convergence Rate', 'Benchmark Time']
+    header = ['File name', 'Overall Average Time Converged', 'Overall Average Convergence Rate', 'Benchmark Time',
+              'Adjusted Time']
 
     # Placeholder for the data
     data = []
@@ -23,8 +24,9 @@ def extract_data_from_csvs(directory):
                 overall_avg_time_converged = lines[0].split(",")[1].strip()
                 overall_avg_conv_rate = lines[1].split(",")[1].strip()
                 benchmark_time = lines[2].split(",")[1].strip()
-
-                data.append([filename, overall_avg_time_converged, overall_avg_conv_rate, benchmark_time])
+                adjusted_time = float(overall_avg_time_converged) * (5/float(benchmark_time))
+                adjusted_time = round(adjusted_time, 2)
+                data.append([filename, overall_avg_time_converged, overall_avg_conv_rate, benchmark_time, adjusted_time])
 
     # Write the data to a new csv file
     with open(os.path.join(directory, 'summary.csv'), 'w', newline='') as outfile:
@@ -38,4 +40,4 @@ def extract_data_from_csvs(directory):
 # extract_data_from_csvs('/path/to/directory')
 
 if __name__=='__main__':
-    extract_data_from_csvs('results/')
+    extract_data_from_csvs('results_kld2/')

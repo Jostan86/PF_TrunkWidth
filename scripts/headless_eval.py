@@ -2,7 +2,8 @@
 
 import json
 import numpy as np
-from pf_engine import PFEngine
+from pf_engine_og import PFEngineOG
+from pf_engine_cpy import PFEngine
 import bisect
 import time
 import scipy
@@ -24,12 +25,13 @@ def parse_args():
     parser.add_argument('-r_dist', '--r_dist', type=float, default=0.6, help='idk')
     parser.add_argument('-r_angle', '--r_angle', type=float, default=20, help='idk, in degrees')
 
-    parser.add_argument('-neff_min', '--neff_min', type=float, default=0.5, help='Lower threshold for resampling'
-                                                                                 'particles')
-    parser.add_argument('-neff_max', '--neff_max', type=float, default=0.99, help='Upper threshold for resampling'
-                                                                                    'particles')
-    parser.add_argument('-cr', '--change_rate', type=float, default=2, help='Rate to change number of '
-                                                                            'particles')
+    parser.add_argument('-bin_size', '--bin_size', type=float, default=0.2, help='Size of the bins for the kld '
+                                                                                 'resampling')
+    parser.add_argument('-bin_angle', '--bin_angle', type=float, default=5, help='Size of the bins for the kld '
+                                                                                 'resampling in degrees')
+    parser.add_argument('-epsilon', '--epsilon', type=float, default=0.05, help='Maximum allowable error in K-L ')
+    parser.add_argument('-delta', '--delta', type=float, default=0.05, help='Desired confidence in the calculated ')
+
     parser.add_argument('-n_min', '--num_particles_min', type=int, default=100, help='Minimum number of particles')
     parser.add_argument('-n_max', '--num_particles_max', type=int, default=2000000, help='Maximum number of particles')
 
@@ -132,11 +134,13 @@ class ParticleFilterEvaluator:
     def __init__(self, args):
 
         self.args = args
+        print(self.args.bin_angle)
 
         self.results_save_dir = self.args.directory_out
         self.saved_data_dir = self.args.directory_data
 
         self.benchmark = self.args.benchmark
+        self.running_benchmark = False
         self.benchmark_runs = 20
 
         self.msg_order = []
@@ -188,7 +192,9 @@ class ParticleFilterEvaluator:
         self.particle_density = self.args.particle_density # particles per square meter
 
         if self.benchmark:
+            self.running_benchmark = True
             self.run_benchmark()
+            self.running_benchmark = False
         self.run_trials()
 
 
@@ -276,7 +282,10 @@ class ParticleFilterEvaluator:
             x_odom = self.odom_data[self.cur_odom_pos]['x_odom']
             theta_odom = self.odom_data[self.cur_odom_pos]['theta_odom']
             time_stamp_odom = self.odom_data[self.cur_odom_pos]['time_stamp']
-            self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
+            if self.running_benchmark:
+                self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
+            else:
+                self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
 
             self.cur_odom_pos += 1
             self.cur_data_pos += 1
@@ -286,15 +295,20 @@ class ParticleFilterEvaluator:
             self.cur_img_pos += 1
             self.cur_data_pos += 1
 
-            if img_data is None:
-                return
+            if img_data is not None:
+                # return
 
-            tree_positions = np.array(img_data['tree_data']['positions'])
-            widths = np.array(img_data['tree_data']['widths'])
-            classes = np.array(img_data['tree_data']['classes'])
+                tree_positions = np.array(img_data['tree_data']['positions'])
+                widths = np.array(img_data['tree_data']['widths'])
+                classes = np.array(img_data['tree_data']['classes'])
 
-            tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
-            self.pf_engine.save_scan(tree_data)
+                tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
+                if self.running_benchmark:
+                    self.pf_engine.save_scan(tree_data)
+                else:
+                    self.pf_engine.scan_update(tree_data)
+            elif not self.running_benchmark:
+                self.pf_engine.resample_particles()
     def process_results(self):
         convergences = np.array(self.convergences)
         run_times = np.array(self.run_times)
@@ -410,9 +424,11 @@ class ParticleFilterEvaluator:
         self.pf_engine.dist_sd = self.args.dist_sd
         self.pf_engine.width_sd = self.args.width_sd
 
-        self.pf_engine.Neff_threshold_min = self.args.neff_min
-        self.pf_engine.Neff_threshold_max = self.args.neff_max
-        self.pf_engine.change_rate = self.args.change_rate
+        self.pf_engine.epsilon = self.args.epsilon
+        self.pf_engine.delta = self.args.delta
+        self.pf_engine.bin_size = self.args.bin_size
+        self.pf_engine.bin_angle = np.deg2rad(self.args.bin_angle)
+
         self.pf_engine.min_num_particles = self.args.num_particles_min
         self.pf_engine.max_num_particles = self.args.num_particles_max
 
@@ -540,7 +556,7 @@ class ParticleFilterEvaluator:
         particle_density = 500
         num_particles = int(particle_density * self.start_height * self.start_width)
 
-        self.pf_engine = PFEngine(self.map_data, start_pose_center=[self.start_x, self.start_y],
+        self.pf_engine = PFEngineOG(self.map_data, start_pose_center=[self.start_x, self.start_y],
                                   start_pose_height=self.start_height, start_pose_width=self.start_width,
                                   num_particles=num_particles, rotation=np.deg2rad(self.start_rotation), rand_seed=iteration)
 
@@ -552,9 +568,6 @@ class ParticleFilterEvaluator:
         self.pf_engine.dist_sd = 0.35
         self.pf_engine.width_sd = 0.025
 
-        self.pf_engine.Neff_threshold_min = 0.5
-        self.pf_engine.Neff_threshold_max = 0.99
-        self.pf_engine.change_rate = 2
         self.pf_engine.min_num_particles = 100
         self.pf_engine.max_num_particles = 2000000
 

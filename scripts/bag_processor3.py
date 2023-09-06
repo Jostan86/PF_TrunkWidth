@@ -4,22 +4,17 @@ from cv_bridge import CvBridge, CvBridgeError
 import os
 import rosbag
 import rospy
-# from trunk_width_estimation.trunk_analyzer import TrunkAnalyzer
 from width_estimation import TrunkAnalyzer
 import json
 import numpy as np
-# from helper_funcs import get_map_data, ParticleMapPlotter, MyMainWindow
-from pf_engine import PFEngine
+from pf_engine_cpy import PFEngine
 import cv2
 import time
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-import matplotlib.pyplot as plt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, \
     QPushButton, QSlider, QComboBox, QSizePolicy, QPlainTextEdit, QCheckBox, QMessageBox
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
-from matplotlib.figure import Figure
 import sys
 import bisect
 import time
@@ -458,7 +453,8 @@ class ParticleFilterBagFiles:
         self.qt_window = MyMainWindow()
         self.qt_app = app
 
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
+        # self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/"
         self.img_base_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/yolo_segs/"
         self.saved_data_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/pf_data/"
 
@@ -496,7 +492,8 @@ class ParticleFilterBagFiles:
 
         self.trunk_analyzer = TrunkAnalyzer()
 
-        self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
+        # self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
+        self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
 
         self.qt_window.reset_button.clicked.connect(self.reset_app)
         self.qt_window.start_stop_button.clicked.connect(self.start_stop_button_clicked)
@@ -579,7 +576,8 @@ class ParticleFilterBagFiles:
                                   num_particles=self.num_particles, rotation=np.deg2rad(self.start_rotation),)
         self.pf_engine.include_width = self.qt_window.include_width_checkbox.isChecked()
         # self.pf_engine.dist_sd = 0.1
-        self.pf_engine.R = np.diag([.6, np.deg2rad(10.0)]) ** 2
+        self.pf_engine.R = np.diag([.6, np.deg2rad(20.0)]) ** 2
+        self.pf_engine.bin_size = 0.5
         self.qt_window.plotter.update_particles(self.pf_engine.particles)
 
     def start_stop_button_clicked(self):
@@ -595,8 +593,10 @@ class ParticleFilterBagFiles:
                 self.run_pf()
                 self.post_a_time(round_start_time, "Total time:", ms=False)
 
-                correct_convergence, distance = self.check_convergence()
+                correct_convergence, distance = self.check_convergence_location()
+
                 print("Correct convergence: {}".format(correct_convergence))
+
                 print("Distance: {}".format(distance))
 
             elif self.qt_window.mode_selector.currentText() == "Tests":
@@ -627,7 +627,7 @@ class ParticleFilterBagFiles:
                             break
 
                         run_times.append(time.time() - round_start_time - self.round_exclude_time)
-                        correct_convergence, distance = self.check_convergence()
+                        correct_convergence, distance = self.check_convergence_location()
                         distances.append(distance)
                         trials_converged.append(correct_convergence)
                         self.load_next_trial()
@@ -793,11 +793,6 @@ class ParticleFilterBagFiles:
                 self.qt_window.start_stop_button.setEnabled(False)
                 self.qt_window.continue_button.setEnabled(True)
 
-    # def test_changed(self):
-    #     # get the test number as the index of the test selector
-    #     self.test_num = self.qt_window.test_selector.currentIndex()
-    #     # load the test
-    #     self.load_next_test()
 
     def load_next_trial(self):
 
@@ -893,9 +888,13 @@ class ParticleFilterBagFiles:
                 x_odom = self.odom_data[self.cur_odom_pos]['x_odom']
                 theta_odom = self.odom_data[self.cur_odom_pos]['theta_odom']
                 time_stamp_odom = self.odom_data[self.cur_odom_pos]['time_stamp']
-                self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
+                # self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
+                self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
             else:
-                self.pf_engine.save_odom_ros(self.odom_msgs[self.cur_odom_pos])
+                x_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.linear.x
+                theta_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.angular.z
+                time_stamp_odom = self.odom_msgs[self.cur_odom_pos].header.stamp.to_sec()
+                self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
 
                 if self.save_data:
                     timestamp = self.odom_msgs[self.cur_odom_pos].header.stamp.to_sec()
@@ -922,12 +921,17 @@ class ParticleFilterBagFiles:
                 self.cur_data_pos += 1
 
 
-                if img_data is None:
-                    return
+                # if img_data is None:
+                    # return
 
-                tree_positions = np.array(img_data['tree_data']['positions'])
-                widths = np.array(img_data['tree_data']['widths'])
-                classes = np.array(img_data['tree_data']['classes'])
+                if img_data is not None:
+                    tree_positions = np.array(img_data['tree_data']['positions'])
+                    widths = np.array(img_data['tree_data']['widths'])
+                    classes = np.array(img_data['tree_data']['classes'])
+                else:
+                    tree_positions = None
+                    widths = None
+                    classes = None
 
 
             else:
@@ -940,22 +944,26 @@ class ParticleFilterBagFiles:
                 self.cur_data_pos += 1
                 self.update_img_label()
 
-                if tree_positions is None:
-                    if self.save_data:
-                        self.saved_data[timestamp] = None
-                    return
+                # if tree_positions is None and self.save_data:
+                #     if self.save_data:
+                #         self.saved_data[timestamp] = None
+                #     # return
+                if tree_positions is not None:
+                    # Switch sign on x_pos and y_pos
+                    tree_positions[:, 0] = -tree_positions[:, 0]
+                    tree_positions[:, 1] = -tree_positions[:, 1]
 
-                # Switch sign on x_pos and y_pos
-                tree_positions[:, 0] = -tree_positions[:, 0]
-                tree_positions[:, 1] = -tree_positions[:, 1]
-
-            tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
-            self.pf_engine.save_scan(tree_data)
+            if tree_positions is not None:
+                tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
+                # self.pf_engine.save_scan(tree_data)
+                self.pf_engine.scan_update(tree_data)
+            else:
+                self.pf_engine.resample_particles()
 
             if self.show_plot_updates:
                 start_time = time.time()
-                for msg in self.pf_engine.scan_info_msgs:
-                    self.qt_window.console.appendPlainText(msg)
+                # for msg in self.pf_engine.scan_info_msgs:
+                #     self.qt_window.console.appendPlainText(msg)
                 self.qt_window.plotter.update_particles(self.pf_engine.particles)
 
                 # ensure plot updates by refreshing the GUI
@@ -963,7 +971,7 @@ class ParticleFilterBagFiles:
 
                 self.post_a_time(start_time, "Plotting Time: ")
 
-            if self.save_data and not self.use_loaded_data:
+            if self.save_data and not self.use_loaded_data and tree_positions is not None:
                 tree_data = {'positions': tree_positions.tolist(), 'widths': widths.tolist(), 'classes': classes.tolist()}
                 self.saved_data[timestamp] = {'tree_data': tree_data,
                                               'location_estimate': {}}
@@ -971,16 +979,18 @@ class ParticleFilterBagFiles:
                 self.saved_data[timestamp]['location_estimate']['x'] = best_particle[0]
                 self.saved_data[timestamp]['location_estimate']['y'] = best_particle[1]
                 self.saved_data[timestamp]['location_estimate']['theta'] = best_particle[2]
+            elif self.save_data and not self.use_loaded_data:
+                self.saved_data[timestamp] = None
 
     def get_trunk_data(self):
         time_start = time.time()
-        try:
-            tree_positions, widths, classes, img_seg = self.trunk_analyzer.pf_helper(
-                self.paired_imgs[self.cur_img_pos][1],
-                self.paired_imgs[self.cur_img_pos][0],
-                show_seg=True)
-        except IndexError:
-            print("Index error")
+        # try:
+        tree_positions, widths, classes, img_seg = self.trunk_analyzer.pf_helper(
+            self.paired_imgs[self.cur_img_pos][1],
+            self.paired_imgs[self.cur_img_pos][0],
+            show_seg=True)
+        # except IndexError:
+        #     print("Index error")
         if self.start_time is not None and self.show_plot_updates:
             self.post_a_time(self.start_time, "Full Cycle Time: ")
 
@@ -1164,8 +1174,11 @@ class ParticleFilterBagFiles:
         if not from_button:
             self.qt_window.data_file_selector.setCurrentText(self.cur_bag_file_name)
 
-        self.run_num = int(self.cur_bag_file_name.split("_")[0].split("-")[-1])
-
+        try:
+            self.run_num = int(self.cur_bag_file_name.split("_")[0].split("-")[-1])
+        except ValueError:
+            print("Invalid bag file name, no run number found")
+            self.run_num = 0
         # Change the button text
         self.qt_window.data_file_open_button.setText("---")
 
@@ -1178,6 +1191,14 @@ class ParticleFilterBagFiles:
                     depth_image = self.bridge.imgmsg_to_cv2(d_msg, "passthrough")
                     color_img = self.bridge.imgmsg_to_cv2(img_msg, "bgr8")
                     self.time_stamps_img.append(d_msg.header.stamp.to_sec())
+
+                    # Check if color image height and width are divisible by 32
+                    if color_img.shape[0] % 32 != 0:
+                        color_img = color_img[:-(color_img.shape[0] % 32), :, :]
+                        depth_image = depth_image[:-(depth_image.shape[0] % 32), :]
+                    if color_img.shape[1] % 32 != 0:
+                        color_img = color_img[:, :-(color_img.shape[1] % 32), :]
+                        depth_image = depth_image[:, :-(depth_image.shape[1] % 32)]
                 except CvBridgeError as e:
                     print(e)
                 return (depth_image, color_img)
@@ -1185,7 +1206,12 @@ class ParticleFilterBagFiles:
                 return None
 
         path = self.bag_file_dir + self.cur_bag_file_name
-        bag_data = rosbag.Bag(path)
+        try:
+            bag_data = rosbag.Bag(path)
+        except IsADirectoryError:
+            print("Invalid bag file name")
+            self.qt_window.data_file_open_button.setText("Open")
+            return
         depth_msg = None
         color_msg = None
         self.msg_order = []
@@ -1201,7 +1227,7 @@ class ParticleFilterBagFiles:
         for topic, msg, t in bag_data.read_messages(topics=self.topics):
             if t_start is None:
                 t_start = t.to_sec()
-            if topic == "/registered/depth/image":
+            if topic == self.topics[1]:
                 depth_msg = msg
                 paired_img = pair_messages(depth_msg, color_msg)
                 if paired_img is not None:
@@ -1209,7 +1235,7 @@ class ParticleFilterBagFiles:
                     self.msg_order.append(1)
                     self.time_stamps.append(t.to_sec() - t_start)
 
-            elif topic == "/registered/rgb/image":
+            elif topic == self.topics[0]:
                 color_msg = msg
                 paired_img = pair_messages(depth_msg, color_msg)
                 if paired_img is not None:
@@ -1218,7 +1244,7 @@ class ParticleFilterBagFiles:
                     self.time_stamps.append(t.to_sec() - t_start)
 
 
-            elif topic == "/odometry/filtered":
+            elif topic == self.topics[2]:
                 self.odom_msgs.append(msg)
                 self.msg_order.append(0)
                 self.time_stamps.append(t.to_sec() - t_start)
@@ -1314,7 +1340,7 @@ class ParticleFilterBagFiles:
         with open(file_name, 'w') as outfile:
             json.dump(self.saved_data, outfile)
 
-    def check_convergence(self):
+    def check_convergence_location(self):
         current_position = self.pf_engine.best_particle[0:2]
         actual_position_x = self.img_data[self.cur_img_pos]['location_estimate']['x']
         actual_position_y = self.img_data[self.cur_img_pos]['location_estimate']['y']
@@ -1324,7 +1350,6 @@ class ParticleFilterBagFiles:
             return True, distance
         else:
             return False, distance
-
 
 
 

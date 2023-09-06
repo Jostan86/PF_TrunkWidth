@@ -16,7 +16,8 @@ class TrunkAnalyzer:
     def __init__(self):
 
         # Initialize predictor using the configuration object
-        weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500.pt"
+        # weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500_v5.pt"
+        weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500_v7.pt"
         self.yolo_model = YOLO(weight_path)
 
         self.results = None
@@ -306,7 +307,7 @@ class TrunkAnalyzer:
         self.depth_calculated = True
         self.update_arrays(keep)
 
-    def calculate_width(self, horz_fov=69.4):
+    def calculate_width(self):
         """
         Calculates the best estimate of the width of the tree in meters.
 
@@ -325,6 +326,16 @@ class TrunkAnalyzer:
 
             # Get the diameter of the tree in pixels
             diameter_pixels = self.get_st(mask)
+
+            # get image width in pixels
+            image_width_pixels = mask.shape[1]
+            if image_width_pixels == 640:
+                horz_fov = 55.0
+            elif image_width_pixels == 848 or image_width_pixels == 1280:
+                horz_fov = 69.4
+            else:
+                print("Image width not supported, using default 69.4 degrees")
+                horz_fov = 69.4
 
             # Calculate the width of the image in meters at the depth of the tree
             image_width_m = depth * np.tan(np.deg2rad(horz_fov / 2)) * 2
@@ -627,7 +638,7 @@ class TrunkAnalyzer:
             self.mask_filter_position(bottom_position_threshold=0.5, top_position_threshold=0.65, score_threshold=0.9)
 
             # self.calculate_width()
-            self.calculate_width(horz_fov=55)
+            self.calculate_width()
 
 
 
@@ -736,25 +747,25 @@ class TrunkAnalyzer:
             #     save_path1 = save_path + 'mask{}.png'.format(l)
             #     cv2.imwrite(save_path1, mask)
 
-    def eval_helper(self, image, depth_image):
-        self.new_image_reset(image, depth_image)
-        # remove 8 pixels on each side
-
-        self.process_image()
-
-        # Get index of lowest absolute medial x value
-        min_x_index = np.argmin(np.abs(self.tree_locations[:, 0]))
-        keep = np.zeros(self.num_instances, dtype=bool)
-        keep[min_x_index] = True
-        self.update_arrays(keep)
-
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        v0 = Visualizer(image_rgb, scale=1.0, )
-        outputs0 = self.results[self.results_kept]
-        out0 = v0.draw_instance_predictions(outputs0)
-        image_masked = out0.get_image()[:, :, ::-1]
-
-        return self.tree_widths[0], image_masked, self.masks[0]
+    # def eval_helper(self, image, depth_image):
+    #     self.new_image_reset(image, depth_image)
+    #     # remove 8 pixels on each side
+    #
+    #     self.process_image()
+    #
+    #     # Get index of lowest absolute medial x value
+    #     min_x_index = np.argmin(np.abs(self.tree_locations[:, 0]))
+    #     keep = np.zeros(self.num_instances, dtype=bool)
+    #     keep[min_x_index] = True
+    #     self.update_arrays(keep)
+    #
+    #     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #     v0 = Visualizer(image_rgb, scale=1.0, )
+    #     outputs0 = self.results[self.results_kept]
+    #     out0 = v0.draw_instance_predictions(outputs0)
+    #     image_masked = out0.get_image()[:, :, ::-1]
+    #
+    #     return self.tree_widths[0], image_masked, self.masks[0]
 
     def eval(self, image, depth_image):
         image = image[:, 8:-8]

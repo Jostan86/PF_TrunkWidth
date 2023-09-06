@@ -354,9 +354,9 @@ class ParticleFilterBagFiles:
                     except CvBridgeError as e:
                         print(e)
 
-                    # # remove 16 pixels from the top edge of each of the images to size them for yolo
-                    # depth_image = depth_image[16:, :]
-                    # color_img = color_img[16:, :]
+                    # remove 16 pixels from the top edge of each of the images to size them for yolo
+                    depth_image = depth_image[16:, :]
+                    color_img = color_img[16:, :]
 
                     self.paired_imgs.append([depth_image, color_img])
                     self.time_stamps.append(depth_msgs[i].header.stamp.to_sec())
