@@ -262,6 +262,11 @@ class ParticleFilterEvaluator:
                     self.pf_active = False
                 self.round_exclude_time += time.time() - start_time_dist
     def run_pf_benchmark(self):
+        self.pf_active = True
+        while self.pf_active:
+            self.send_next_msg()
+            if not self.pf_active:
+                break
         if self.pf_engine.particles.shape[0] == 100 and self.img_data[self.cur_img_pos] is not None:
 
             start_time_dist = time.time()
