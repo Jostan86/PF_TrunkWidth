@@ -11,6 +11,8 @@ import pandas as pd
 import csv
 import argparse
 import glob
+from scipy.ndimage import label
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Analyzes the particle filter system.')
 
@@ -225,7 +227,7 @@ class ParticleFilterEvaluator:
                 self.run_pf()
 
                 run_times.append(time.time() - round_start_time - self.round_exclude_time)
-                correct_convergence, distance = self.check_convergence()
+                correct_convergence, distance = self.check_converged_distance()
                 distances.append(distance)
                 trials_converged.append(correct_convergence)
 
@@ -252,22 +254,13 @@ class ParticleFilterEvaluator:
             self.send_next_msg()
             if not self.pf_active:
                 break
-            if (self.pf_engine.particles.shape[0] == 100 and self.stop_at_100 and
-                    self.img_data[self.cur_img_pos] is not None):
-
-                if self.stop_at_1m:
-                        start_time_dist = time.time()
-                        # Find the distance between every pair of particles
-                        dists = scipy.spatial.distance.pdist(self.pf_engine.particles)
-                        # Find the maximum distance between any pair of particles
-                        max_dist = np.max(dists)
-                        self.round_exclude_time += time.time() - start_time_dist
-                        if max_dist < 1:
-
-                            self.pf_active = False
-
-                else:
+            if (self.pf_engine.histogram is not None and self.img_data[self.cur_img_pos] is not None and
+                    self.msg_order[self.cur_data_pos] == 1):
+                start_time_dist = time.time()
+                correct_convergence = self.check_convergence(self.pf_engine.histogram)
+                if correct_convergence:
                     self.pf_active = False
+                self.round_exclude_time += time.time() - start_time_dist
 
     def send_next_msg(self):
 
@@ -499,7 +492,7 @@ class ParticleFilterEvaluator:
                 self.img_data.append(loaded_data[time_stamp_key])
 
 
-    def check_convergence(self):
+    def check_converged_distance(self):
         current_position = self.pf_engine.best_particle[0:2]
         actual_position_x = self.img_data[self.cur_img_pos]['location_estimate']['x']
         actual_position_y = self.img_data[self.cur_img_pos]['location_estimate']['y']
@@ -532,7 +525,7 @@ class ParticleFilterEvaluator:
             self.run_pf()
 
             self.run_times_benchmark.append(time.time() - round_start_time - self.round_exclude_time)
-            correct_convergence, distance = self.check_convergence()
+            correct_convergence, distance = self.check_converged_distance()
             self.distances_benchmark.append(distance)
             self.convergences_benchmark.append(correct_convergence)
 
@@ -571,6 +564,40 @@ class ParticleFilterEvaluator:
         self.pf_engine.min_num_particles = 100
         self.pf_engine.max_num_particles = 2000000
 
+    def check_convergence(self, hist):
+        # Convert the histogram to binary where bins with any count are considered as occupied.
+        binary_mask = (hist > 0).astype(int)
+
+        # Define a structure for direct connectivity in 3D.
+        structure = np.array([[[0, 0, 0],
+                               [0, 1, 0],
+                               [0, 0, 0]],
+
+                              [[0, 1, 0],
+                               [1, 1, 1],
+                               [0, 1, 0]],
+
+                              [[0, 0, 0],
+                               [0, 1, 0],
+                               [0, 0, 0]]])
+
+        # Label connected components. The structure defines what is considered "connected".
+        labeled_array, num_features = label(binary_mask, structure=structure)
+
+        # If there is only one feature, then the particles have converged
+        if num_features == 1:
+            # Get the size of each feature
+            feature_sizes = np.bincount(labeled_array.ravel())[1:]
+            feature_size_max = int(((1/self.pf_engine.bin_size)**2) * ((0.25 * np.pi) / self.pf_engine.bin_angle))
+            if self.verbose:
+                print("Feature Sizes: ", feature_sizes)
+                print("Feature Size Max: ", feature_size_max)
+            if feature_sizes[0] < feature_size_max:
+                return True
+            else:
+                return False
+        else:
+            return False
 
 
 

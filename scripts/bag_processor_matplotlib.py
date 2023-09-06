@@ -9,7 +9,7 @@ from width_estimation import TrunkAnalyzer
 import json
 import numpy as np
 # from helper_funcs import get_map_data, ParticleMapPlotter, MyMainWindow
-from pf_engine import PFEngine
+from pf_engine_og import PFEngineOG
 import cv2
 import time
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
@@ -398,7 +398,7 @@ class ParticleFilterBagFiles:
 
         self.map_data = get_map_data()
 
-        self.pf_engine = PFEngine(self.map_data, start_pose_center=self.start_pose_center,
+        self.pf_engine = PFEngineOG(self.map_data, start_pose_center=self.start_pose_center,
                                  start_pose_radius=self.start_radius,
                              num_particles=self.num_particles,)
 
@@ -447,7 +447,7 @@ class ParticleFilterBagFiles:
         self.start_pose_center = [start_x, start_y]
         self.start_radius = float(self.qt_app.radius_input.text())
         self.num_particles = int(self.qt_app.particle_density_input.text())
-        self.pf_engine = PFEngine(self.map_data, start_pose_center=self.start_pose_center,
+        self.pf_engine = PFEngineOG(self.map_data, start_pose_center=self.start_pose_center,
                                   start_pose_radius=self.start_radius,
                                   num_particles=self.num_particles, )
         self.pf_engine.include_width = self.qt_app.include_width_checkbox.isChecked()

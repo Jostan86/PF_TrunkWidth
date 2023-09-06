@@ -19,9 +19,11 @@ import sys
 import bisect
 import time
 import pyqtgraph as pg
-import scipy
+import scipy.spatial
 import pandas as pd
 import csv
+from scipy.ndimage import label
+
 
 # To run in pycharm add the following environment variable:
 # LD_PRELOAD: Set it to /usr/lib/x86_64-linux-gnu/libstdc++.so.6
@@ -266,15 +268,12 @@ class MyMainWindow(QMainWindow):
         self.include_width_checkbox.setChecked(True)
         self.save_data_checkbox = QCheckBox("Save data")
         self.save_data_checkbox.setChecked(False)
-        self.stop_at_100_checkbox = QCheckBox("Stop at 100 particles (the min)")
-        self.stop_at_100_checkbox.setChecked(True)
-        self.stop_at_1m_checkbox = QCheckBox("Stop when max distance is 1m")
-        self.stop_at_1m_checkbox.setChecked(True)
+        self.stop_when_converged = QCheckBox("Stop When Converged")
+        self.stop_when_converged.setChecked(True)
 
         checkbox_layout1 = QHBoxLayout()
         checkbox_layout1.addWidget(self.include_width_checkbox)
-        checkbox_layout1.addWidget(self.stop_at_100_checkbox)
-        checkbox_layout1.addWidget(self.stop_at_1m_checkbox)
+        checkbox_layout1.addWidget(self.stop_when_converged)
         checkbox_layout1.addWidget(self.save_data_checkbox)
         checkbox_layout1.addStretch(1)
 
@@ -545,10 +544,12 @@ class ParticleFilterBagFiles:
         self.convergence_threshold = 0.5
 
 
-
         self.reset_app()
         self.mode_changed()
         self.use_saved_data_changed()
+
+        self.qt_window.data_file_selector.setCurrentIndex(5)
+        self.open_bag_file_button_clicked()
 
 
 
@@ -577,8 +578,9 @@ class ParticleFilterBagFiles:
         self.pf_engine.include_width = self.qt_window.include_width_checkbox.isChecked()
         # self.pf_engine.dist_sd = 0.1
         self.pf_engine.R = np.diag([.6, np.deg2rad(20.0)]) ** 2
-        self.pf_engine.bin_size = 0.5
+        self.pf_engine.bin_size = 0.2
         self.qt_window.plotter.update_particles(self.pf_engine.particles)
+        self.pf_engine.bin_angle = np.deg2rad(5.0)
 
     def start_stop_button_clicked(self):
         # Check current text on button
@@ -593,7 +595,7 @@ class ParticleFilterBagFiles:
                 self.run_pf()
                 self.post_a_time(round_start_time, "Total time:", ms=False)
 
-                correct_convergence, distance = self.check_convergence_location()
+                correct_convergence, distance = self.check_converged_location()
 
                 print("Correct convergence: {}".format(correct_convergence))
 
@@ -611,8 +613,7 @@ class ParticleFilterBagFiles:
                     for _ in range(self.num_trials):
 
                         self.qt_window.use_saved_data_checkbox.setChecked(True)
-                        self.qt_window.stop_at_100_checkbox.setChecked(True)
-                        self.qt_window.stop_at_1m_checkbox.setChecked(True)
+                        self.qt_window.stop_when_converged.setChecked(True)
                         self.qt_window.save_data_checkbox.setChecked(False)
                         self.qt_app.processEvents()
 
@@ -627,7 +628,7 @@ class ParticleFilterBagFiles:
                             break
 
                         run_times.append(time.time() - round_start_time - self.round_exclude_time)
-                        correct_convergence, distance = self.check_convergence_location()
+                        correct_convergence, distance = self.check_converged_location()
                         distances.append(distance)
                         trials_converged.append(correct_convergence)
                         self.load_next_trial()
@@ -826,22 +827,14 @@ class ParticleFilterBagFiles:
     def run_pf(self):
         while self.pf_active:
             self.send_next_msg()
-            if (self.pf_engine.particles.shape[0] == 100 and self.qt_window.stop_at_100_checkbox.isChecked() and
-                    self.img_data[self.cur_img_pos] is not None):
-
-                if self.qt_window.stop_at_1m_checkbox.isChecked():
-                        start_time_dist = time.time()
-                        # Find the distance between every pair of particles
-                        dists = scipy.spatial.distance.pdist(self.pf_engine.particles)
-                        # Find the maximum distance between any pair of particles
-                        max_dist = np.max(dists)
-                        self.round_exclude_time += time.time() - start_time_dist
-                        if max_dist < 1:
-
-                            self.pf_active = False
-
-                else:
+            if self.pf_engine.histogram is not None and self.qt_window.stop_when_converged.isChecked() \
+                    and self.img_data[self.cur_img_pos] is not None and self.msg_order[self.cur_data_pos] == 1:
+                start_time_dist = time.time()
+                correct_convergence = self.check_convergence(self.pf_engine.histogram)
+                print("Particles Converged: {}".format(correct_convergence))
+                if correct_convergence:
                     self.pf_active = False
+                self.round_exclude_time += time.time() - start_time_dist
 
     def update_img_label(self):
         if self.use_loaded_data:
@@ -1340,7 +1333,7 @@ class ParticleFilterBagFiles:
         with open(file_name, 'w') as outfile:
             json.dump(self.saved_data, outfile)
 
-    def check_convergence_location(self):
+    def check_converged_location(self):
         current_position = self.pf_engine.best_particle[0:2]
         actual_position_x = self.img_data[self.cur_img_pos]['location_estimate']['x']
         actual_position_y = self.img_data[self.cur_img_pos]['location_estimate']['y']
@@ -1351,7 +1344,41 @@ class ParticleFilterBagFiles:
         else:
             return False, distance
 
+    def check_convergence(self, hist):
+        # Convert the histogram to binary where bins with any count are considered as occupied.
+        binary_mask = (hist > 0).astype(int)
 
+        # Define a structure for direct connectivity in 3D.
+        structure = np.array([[[0, 0, 0],
+                               [0, 1, 0],
+                               [0, 0, 0]],
+
+                              [[0, 1, 0],
+                               [1, 1, 1],
+                               [0, 1, 0]],
+
+                              [[0, 0, 0],
+                               [0, 1, 0],
+                               [0, 0, 0]]])
+
+        # Label connected components. The structure defines what is considered "connected".
+        labeled_array, num_features = label(binary_mask, structure=structure)
+
+        # If there is only one feature, then the particles have converged
+        if num_features == 1:
+            # Get the size of each feature
+            feature_sizes = np.bincount(labeled_array.ravel())[1:]
+            feature_size_max = int(((1/self.pf_engine.bin_size)**2) * ((0.25 * np.pi) / self.pf_engine.bin_angle))
+            print("Feature Sizes: ", feature_sizes)
+            print("Feature Size Max: ", feature_size_max)
+            if feature_sizes[0] < feature_size_max:
+                return True
+            else:
+                return False
+        else:
+            return False
+
+        # return num_features == 1
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
