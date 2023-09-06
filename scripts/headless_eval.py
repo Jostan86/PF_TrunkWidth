@@ -12,6 +12,7 @@ import csv
 import argparse
 import glob
 from scipy.ndimage import label
+import scipy.spatial
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Analyzes the particle filter system.')
@@ -186,8 +187,6 @@ class ParticleFilterEvaluator:
             self.include_width = True
 
         self.verbose = self.args.verbose
-        self.stop_at_100 = True
-        self.stop_at_1m = True
 
         self.pf_engine = None
 
@@ -254,6 +253,7 @@ class ParticleFilterEvaluator:
             self.send_next_msg()
             if not self.pf_active:
                 break
+
             if (self.pf_engine.histogram is not None and self.img_data[self.cur_img_pos] is not None and
                     self.msg_order[self.cur_data_pos] == 1):
                 start_time_dist = time.time()
@@ -261,6 +261,19 @@ class ParticleFilterEvaluator:
                 if correct_convergence:
                     self.pf_active = False
                 self.round_exclude_time += time.time() - start_time_dist
+    def run_pf_benchmark(self):
+        if self.pf_engine.particles.shape[0] == 100 and self.img_data[self.cur_img_pos] is not None:
+
+            start_time_dist = time.time()
+            # Find the distance between every pair of particles
+            dists = scipy.spatial.distance.pdist(self.pf_engine.particles)
+            # Find the maximum distance between any pair of particles
+            max_dist = np.max(dists)
+            self.round_exclude_time += time.time() - start_time_dist
+            if max_dist < 1:
+                self.pf_active = False
+            else:
+                self.pf_active = False
 
     def send_next_msg(self):
 
@@ -522,7 +535,7 @@ class ParticleFilterEvaluator:
             round_start_time = time.time()
             self.round_exclude_time = 0
 
-            self.run_pf()
+            self.run_pf_benchmark()
 
             self.run_times_benchmark.append(time.time() - round_start_time - self.round_exclude_time)
             correct_convergence, distance = self.check_converged_distance()
