@@ -141,7 +141,7 @@ class ParticleFilterBagFiles:
         self.qt_window = MyMainWindow()
         self.qt_app = app
 
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/"
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
         # self.bag_file_dir = "/media/jostan/MOAD/research_data/hort_farm_data/"
         # self.img_base_dir = "/media/jostan/MOAD/research_data/roza_imgs/"
 
@@ -321,6 +321,26 @@ class ParticleFilterBagFiles:
         self.cur_img_pos = 0
         depth_msgs = []
         color_msgs = []
+        color_msg = None
+        depth_msg = None
+        def pair_messages(d_msg, img_msg):
+            if d_msg is not None and img_msg is not None and d_msg.header.stamp == img_msg.header.stamp:
+                try:
+                    depth_image = self.bridge.imgmsg_to_cv2(d_msg, "passthrough")
+                    color_img = self.bridge.imgmsg_to_cv2(img_msg, "bgr8")
+
+                    # Check if color image height and width are divisible by 32
+                    if color_img.shape[0] % 32 != 0:
+                        color_img = color_img[:-(color_img.shape[0] % 32), :, :]
+                        depth_image = depth_image[:-(depth_image.shape[0] % 32), :]
+                    if color_img.shape[1] % 32 != 0:
+                        color_img = color_img[:, :-(color_img.shape[1] % 32), :]
+                        depth_image = depth_image[:, :-(depth_image.shape[1] % 32)]
+                except CvBridgeError as e:
+                    print(e)
+                return (depth_image, color_img)
+            else:
+                return None
 
         t_start = None
         for topic, msg, t in bag_data.read_messages(topics=[self.rgb_topic, self.depth_topic]):
@@ -328,39 +348,43 @@ class ParticleFilterBagFiles:
                 t_start = t.to_sec()
             if topic == self.depth_topic:
                 depth_msg = msg
-                depth_msgs.append(depth_msg)
-                # paired_img = pair_messages(depth_msg, color_msg)
-                # if paired_img is not None:
-                #     self.paired_imgs.append(paired_img)
-                #     self.time_stamps.append(t.to_sec() - t_start)
+                # depth_msgs.append(depth_msg)
+                paired_img = pair_messages(depth_msg, color_msg)
+                if paired_img is not None:
+                    self.paired_imgs.append(paired_img)
+                    self.time_stamps.append(t.to_sec() - t_start)
 
             elif topic == self.rgb_topic:
                 color_msg = msg
-                color_msgs.append(color_msg)
-                # paired_img = pair_messages(depth_msg, color_msg)
-                # if paired_img is not None:
-                #     self.paired_imgs.append(paired_img)
-                #     self.time_stamps.append(t.to_sec() - t_start)
+                # color_msgs.append(color_msg)
+                paired_img = pair_messages(depth_msg, color_msg)
+                if paired_img is not None:
+                    self.paired_imgs.append(paired_img)
+                    self.time_stamps.append(t.to_sec() - t_start)
 
-        # Pair messages by comparing thier time stamps
-        for i in range(len(depth_msgs)):
-            depth_time = depth_msgs[i].header.stamp.to_sec()
-            for j in range(len(color_msgs)):
-                color_time = color_msgs[j].header.stamp.to_sec()
-                if abs(depth_time - color_time) < 0.01:
-                    try:
-                        depth_image = self.bridge.imgmsg_to_cv2(depth_msgs[i], "passthrough")
-                        color_img = self.bridge.imgmsg_to_cv2(color_msgs[j], "bgr8")
-                    except CvBridgeError as e:
-                        print(e)
-
-                    # remove 16 pixels from the top edge of each of the images to size them for yolo
-                    depth_image = depth_image[16:, :]
-                    color_img = color_img[16:, :]
-
-                    self.paired_imgs.append([depth_image, color_img])
-                    self.time_stamps.append(depth_msgs[i].header.stamp.to_sec())
-                    break
+        # # Pair messages by comparing thier time stamps
+        # for i in range(len(depth_msgs)):
+        #     depth_time = depth_msgs[i].header.stamp.to_sec()
+        #     for j in range(len(color_msgs)):
+        #         color_time = color_msgs[j].header.stamp.to_sec()
+        #         if abs(depth_time - color_time) < 0.01:
+        #             try:
+        #                 depth_image = self.bridge.imgmsg_to_cv2(depth_msgs[i], "passthrough")
+        #                 color_img = self.bridge.imgmsg_to_cv2(color_msgs[j], "bgr8")
+        #             except CvBridgeError as e:
+        #                 print(e)
+        #
+        #             # Check if color image height and width are divisible by 32
+        #             if color_img.shape[0] % 32 != 0:
+        #                 color_img = color_img[:-(color_img.shape[0] % 32), :, :]
+        #                 depth_image = depth_image[:-(depth_image.shape[0] % 32), :]
+        #             if color_img.shape[1] % 32 != 0:
+        #                 color_img = color_img[:, :-(color_img.shape[1] % 32), :]
+        #                 depth_image = depth_image[:, :-(depth_image.shape[1] % 32)]
+        #
+        #             self.paired_imgs.append([depth_image, color_img])
+        #             self.time_stamps.append(depth_msgs[i].header.stamp.to_sec())
+        #             break
 
         self.qt_window.data_file_open_button.setText("Open")
 

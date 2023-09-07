@@ -1,10 +1,9 @@
 #!/bin/bash
-#SBATCH -t 0-12:00:00
+#SBATCH -t 1-00:00:00
+#SBATCH -o /nfs/hpc/share/browjost/pf_eval/logdirs/output_pf_test_bin_angle_2_%a.out
+#SBATCH -e /nfs/hpc/share/browjost/pf_eval/logdirs/errors_pf_test_bin_angle_2_%a.err
 #SBATCH -J pf_test_bin_angle_2						  # name of job
-#SBATCH -p share								  # name of partition or queue
-#SBATCH -o /nfs/hpc/share/browjost/pf_eval/logdirs/output_%a.out			  # name of output file for this submission script
-#SBATCH -e /nfs/hpc/share/browjost/pf_eval/logdirs/errors_%a.err				  # name of error file for this submission script1
-#SBATCH -N 2
+#SBATCH -p share
 #SBATCH --ntasks=2
 #SBATCH --cpus-per-task=1
 
@@ -17,12 +16,14 @@ srun --ntasks=1 --export ALL python3 headless_eval.py --benchmark \
                                            -dir_out "/nfs/hpc/share/browjost/pf_eval/results/" \
                                            -dir_data "/nfs/hpc/share/browjost/pf_eval/data/" \
                                            -nt 20 \
-                                           -bin_angle 6 \
-                                           -name "bin_angle-6" &
+                                           -bin_angle 8 \
+                                           --verbose \
+                                           -name "bin_angle-8" &
 srun --ntasks=1 --export ALL python3 headless_eval.py --benchmark \
                                            -dir_out "/nfs/hpc/share/browjost/pf_eval/results/" \
                                            -dir_data "/nfs/hpc/share/browjost/pf_eval/data/" \
                                            -nt 20 \
-                                           -bin_angle 10 \
-                                           -name "bin_angle-10" &
+                                           --verbose \
+                                           -bin_angle 2 \
+                                           -name "bin_angle-2" &
 wait

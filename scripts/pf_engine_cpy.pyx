@@ -260,7 +260,7 @@ class PFEngine:
         for i in range(len(sensed_tree_coords)):
 
             distances, idx = self.kd_tree.query(sensed_tree_coords[i, :, :])
-            width_diffs = np.abs((widths_sensed[i] - 0.01) - (self.map_widths[idx]))
+            width_diffs = np.abs(widths_sensed[i] - (self.map_widths[idx]))
 
             prob_dist = self.probability_of_values(distances, 0, self.dist_sd)
 
@@ -353,6 +353,6 @@ class PFEngine:
         if n > self.max_num_particles:
             n = self.max_num_particles
 
-        print("Number of particles:", int(np.ceil(n)))
+        # print("Number of particles:", int(np.ceil(n)))
 
         return int(np.ceil(n))

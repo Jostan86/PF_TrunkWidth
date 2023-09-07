@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import json
+import sys
+
 import numpy as np
 from pf_engine_og import PFEngineOG
 from pf_engine_cpy import PFEngine
@@ -137,7 +139,8 @@ class ParticleFilterEvaluator:
     def __init__(self, args):
 
         self.args = args
-        print(self.args.bin_angle)
+
+        print(self.args)
 
         self.results_save_dir = self.args.directory_out
         self.saved_data_dir = self.args.directory_data
@@ -205,6 +208,7 @@ class ParticleFilterEvaluator:
             print("Starting tests...")
 
         for start_num in range(len(self.test_starts)):
+
             run_times = []
             trials_converged = []
             distances = []
@@ -261,31 +265,31 @@ class ParticleFilterEvaluator:
                 if correct_convergence:
                     self.pf_active = False
                 self.round_exclude_time += time.time() - start_time_dist
+
     def run_pf_benchmark(self):
         self.pf_active = True
         while self.pf_active:
             self.send_next_msg()
             if not self.pf_active:
                 break
-        if self.pf_engine.particles.shape[0] == 100 and self.img_data[self.cur_img_pos] is not None:
 
-            start_time_dist = time.time()
-            # Find the distance between every pair of particles
-            dists = scipy.spatial.distance.pdist(self.pf_engine.particles)
-            # Find the maximum distance between any pair of particles
-            max_dist = np.max(dists)
-            self.round_exclude_time += time.time() - start_time_dist
-            if max_dist < 1:
-                self.pf_active = False
-            else:
-                self.pf_active = False
+            if self.pf_engine.particles.shape[0] == 100 and self.img_data[self.cur_img_pos] is not None:
+                start_time_dist = time.time()
+                # Find the distance between every pair of particles
+                dists = scipy.spatial.distance.pdist(self.pf_engine.particles)
+                # Find the maximum distance between any pair of particles
+                max_dist = np.max(dists)
+                self.round_exclude_time += time.time() - start_time_dist
+                if max_dist < 1:
+                    self.pf_active = False
+                else:
+                    self.pf_active = False
 
     def send_next_msg(self):
 
-        if self.cur_data_pos >= len(self.msg_order):
+        if self.cur_data_pos >= len(self.msg_order) - 1:
             if self.verbose:
                 print("reached end of run")
-            self.cur_img_pos -= 1
             self.pf_active = False
             return
 
@@ -322,17 +326,8 @@ class ParticleFilterEvaluator:
                 self.pf_engine.resample_particles()
     def process_results(self):
         convergences = np.array(self.convergences)
+
         run_times = np.array(self.run_times)
-
-        # Could also be measureing how many images it had to look at, although i guess that doesn't really tell me time
-
-        # Maybe the benchmark idea is best, but idk about that either
-
-        # can also track number of particles over time, could maybe somehow combine that with the other ideas
-
-        # Here's what I'll do. I just had GPT make me a benchmark script which I'll run and report, I'll also make a
-        # seperate script that runs the pf for a standard start location maybe like 30 times and reports the average
-        # time to convergence and correct convergence rate.
 
         # Calculate the convergence rate for each start location
         convergence_rates = np.sum(convergences, axis=1) / self.num_trials

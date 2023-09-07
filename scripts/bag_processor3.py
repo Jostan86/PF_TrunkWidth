@@ -269,7 +269,7 @@ class MyMainWindow(QMainWindow):
         self.save_data_checkbox = QCheckBox("Save data")
         self.save_data_checkbox.setChecked(False)
         self.stop_when_converged = QCheckBox("Stop When Converged")
-        self.stop_when_converged.setChecked(True)
+        self.stop_when_converged.setChecked(False)
 
         checkbox_layout1 = QHBoxLayout()
         checkbox_layout1.addWidget(self.include_width_checkbox)
@@ -278,7 +278,7 @@ class MyMainWindow(QMainWindow):
         checkbox_layout1.addStretch(1)
 
         self.use_saved_data_checkbox = QCheckBox("Use saved data")
-        self.use_saved_data_checkbox.setChecked(True)
+        self.use_saved_data_checkbox.setChecked(False)
         self.show_image_checkbox = QCheckBox("Show image")
         self.show_image_checkbox.setChecked(True)
         self.update_plot_checkbox = QCheckBox("Update plot")
@@ -453,7 +453,10 @@ class ParticleFilterBagFiles:
         self.qt_app = app
 
         # self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/"
+        # self.bag_file_dir = "/media/jostan/MOAD/research_data/"
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
+        # self.bag_file_dir = "/media/jostan/portabits/sept6/"
+
         self.img_base_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/yolo_segs/"
         self.saved_data_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/pf_data/"
 
@@ -472,11 +475,22 @@ class ParticleFilterBagFiles:
 
         self.pf_active = False
 
-        self.start_pose_center = [42.7, 92.6]
-        self.particle_density = 500
-        self.start_width = 4
-        self.start_height = 20
+        # self.start_pose_center = [42.7, 92.6]
+        # self.particle_density = 500
+        # self.start_width = 4
+        # self.start_height = 20
+        # self.start_rotation = -32
+
+        self.start_pose_center = [38.5, 106]
+        self.particle_density = 1000
+        self.start_width = 2
+        self.start_height = 4
         self.start_rotation = -32
+
+        self.x_offset = 0.8
+        self.y_offset = -0.55
+        # self.x_offset = 0
+        # self.y_offset = 0
 
         self.qt_window.start_x_input.setText(str(self.start_pose_center[0]))
         self.qt_window.start_y_input.setText(str(self.start_pose_center[1]))
@@ -548,8 +562,15 @@ class ParticleFilterBagFiles:
         self.mode_changed()
         self.use_saved_data_changed()
 
-        self.qt_window.data_file_selector.setCurrentIndex(5)
-        self.open_bag_file_button_clicked()
+        # self.qt_window.data_file_selector.setCurrentIndex(5)
+        # self.open_bag_file_button_clicked()
+
+        self.qt_window.bag_time_line.setText("106.9")
+        self.time_stamp_line_edited()
+
+        self.qt_window.mode_selector.setCurrentIndex(1)
+        self.mode_changed()
+
 
 
 
@@ -578,9 +599,20 @@ class ParticleFilterBagFiles:
         self.pf_engine.include_width = self.qt_window.include_width_checkbox.isChecked()
         # self.pf_engine.dist_sd = 0.1
         self.pf_engine.R = np.diag([.6, np.deg2rad(20.0)]) ** 2
-        self.pf_engine.bin_size = 0.2
-        self.qt_window.plotter.update_particles(self.pf_engine.particles)
+        self.pf_engine.bin_size = 0.3
         self.pf_engine.bin_angle = np.deg2rad(5.0)
+
+        adjusted_particles = self.pf_engine.particles.copy()
+        # # Calculate sin and cos of particle angles
+        # s = np.sin(adjusted_particles[:, 2])
+        # c = np.cos(adjusted_particles[:, 2])
+        #
+        # # Rotate the particles by the robot's orientation
+        # adjusted_particles[:, 0] = adjusted_particles[:, 0] + c * self.x_offset - s * self.y_offset
+        # adjusted_particles[:, 1] = adjusted_particles[:, 1] + s * self.x_offset + c * self.y_offset
+
+        self.qt_window.plotter.update_particles(adjusted_particles)
+
 
     def start_stop_button_clicked(self):
         # Check current text on button
@@ -595,11 +627,10 @@ class ParticleFilterBagFiles:
                 self.run_pf()
                 self.post_a_time(round_start_time, "Total time:", ms=False)
 
-                correct_convergence, distance = self.check_converged_location()
-
-                print("Correct convergence: {}".format(correct_convergence))
-
-                print("Distance: {}".format(distance))
+                if self.use_loaded_data:
+                    correct_convergence, distance = self.check_converged_location()
+                    print("Correct convergence: {}".format(correct_convergence))
+                    print("Distance: {}".format(distance))
 
             elif self.qt_window.mode_selector.currentText() == "Tests":
                 self.qt_window.console.appendPlainText("Starting tests...")
@@ -897,11 +928,6 @@ class ParticleFilterBagFiles:
                                                   'time_stamp': self.odom_msgs[self.cur_odom_pos].header.stamp.to_sec(),
                                                   }
 
-            # Skip plotting if there are over 300000 particles
-            # if self.pf_engine.particles.shape[0] < 300000000:
-            #         start_time = time.time()
-            #         self.qt_app.plotter.update_particles(self.pf_engine.particles)
-            #         self.post_a_time(start_time, "Plotting Time: ")
             self.cur_odom_pos += 1
             self.cur_data_pos += 1
 
@@ -912,10 +938,6 @@ class ParticleFilterBagFiles:
                 self.load_saved_img(time_stamp)
                 self.cur_img_pos += 1
                 self.cur_data_pos += 1
-
-
-                # if img_data is None:
-                    # return
 
                 if img_data is not None:
                     tree_positions = np.array(img_data['tree_data']['positions'])
@@ -947,6 +969,11 @@ class ParticleFilterBagFiles:
                     tree_positions[:, 1] = -tree_positions[:, 1]
 
             if tree_positions is not None:
+                tree_positions[:, 0] += self.x_offset
+                tree_positions[:, 1] += self.y_offset
+
+                widths -= 0.01
+
                 tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
                 # self.pf_engine.save_scan(tree_data)
                 self.pf_engine.scan_update(tree_data)
@@ -957,7 +984,16 @@ class ParticleFilterBagFiles:
                 start_time = time.time()
                 # for msg in self.pf_engine.scan_info_msgs:
                 #     self.qt_window.console.appendPlainText(msg)
-                self.qt_window.plotter.update_particles(self.pf_engine.particles)
+                adjusted_particles = self.pf_engine.particles.copy()
+                # # Calculate sin and cos of particle angles
+                # s = np.sin(adjusted_particles[:, 2])
+                # c = np.cos(adjusted_particles[:, 2])
+                #
+                # # Rotate the particles by the robot's orientation
+                # adjusted_particles[:, 0] = adjusted_particles[:, 0] + c * self.x_offset - s * self.y_offset
+                # adjusted_particles[:, 1] = adjusted_particles[:, 1] + s * self.x_offset + c * self.y_offset
+
+                self.qt_window.plotter.update_particles(adjusted_particles)
 
                 # ensure plot updates by refreshing the GUI
                 self.qt_app.processEvents()
@@ -1334,11 +1370,20 @@ class ParticleFilterBagFiles:
             json.dump(self.saved_data, outfile)
 
     def check_converged_location(self):
-        current_position = self.pf_engine.best_particle[0:2]
+        current_position = self.pf_engine.best_particle
+
+        # Calculate sin and cos of particle angles
+        s = np.sin(current_position[2])
+        c = np.cos(current_position[2])
+
+        current_position_cam = np.zeros(2)
+        current_position_cam[0] = current_position[0] + self.x_offset * c + self.y_offset * -s
+        current_position_cam[1] = current_position[1] + self.x_offset * s + self.y_offset * c
+
         actual_position_x = self.img_data[self.cur_img_pos]['location_estimate']['x']
         actual_position_y = self.img_data[self.cur_img_pos]['location_estimate']['y']
         actual_position = np.array([actual_position_x, actual_position_y])
-        distance = np.linalg.norm(current_position - actual_position)
+        distance = np.linalg.norm(current_position_cam - actual_position)
         if distance < self.convergence_threshold:
             return True, distance
         else:
@@ -1379,6 +1424,14 @@ class ParticleFilterBagFiles:
             return False
 
         # return num_features == 1
+
+    def cam_to_robot_frame(self, points, x_offset, y_offset):
+        # Convert the points from the camera frame to the robot frame
+        points[:, 0] += x_offset
+        points[:, 1] += y_offset
+        return points
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

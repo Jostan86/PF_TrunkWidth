@@ -1,11 +1,10 @@
 #!/bin/bash
-#SBATCH -t 0-12:00:00
-#SBATCH -J pf_test_bin_size_2						  # name of job
+#SBATCH -t 2-00:00:00
+#SBATCH -J pf_test_bin_size_1						  # name of job
 #SBATCH -p share								  # name of partition or queue
-#SBATCH -o /nfs/hpc/share/browjost/pf_eval/logdirs/output_%a.out			  # name of output file for this submission script
-#SBATCH -e /nfs/hpc/share/browjost/pf_eval/logdirs/errors_%a.err				  # name of error file for this submission script1
-#SBATCH -N 3
-#SBATCH --ntasks=3
+#SBATCH -o /nfs/hpc/share/browjost/pf_eval/logdirs/output_pf_test_bin_size_1_%a.out			  # name of output file for this submission script
+#SBATCH -e /nfs/hpc/share/browjost/pf_eval/logdirs/errors_pf_test_bin_size_1_%a.err				  # name of error file for this submission script1
+#SBATCH --ntasks=2
 #SBATCH --cpus-per-task=1
 
 
@@ -18,17 +17,13 @@ srun --ntasks=1 --export ALL python3 headless_eval.py --benchmark \
                                            -dir_data "/nfs/hpc/share/browjost/pf_eval/data/" \
                                            -nt 20 \
                                            -bin_size 0.05 \
+                                           --verbose \
                                            -name "bin_size-0.05" &
 srun --ntasks=1 --export ALL python3 headless_eval.py --benchmark \
                                            -dir_out "/nfs/hpc/share/browjost/pf_eval/results/" \
                                            -dir_data "/nfs/hpc/share/browjost/pf_eval/data/" \
                                            -nt 20 \
-                                           -bin_size 0.4 \
-                                           -name "bin_size-0.4" &
-srun --ntasks=1 --export ALL python3 headless_eval.py --benchmark \
-                                           -dir_out "/nfs/hpc/share/browjost/pf_eval/results/" \
-                                           -dir_data "/nfs/hpc/share/browjost/pf_eval/data/" \
-                                           -nt 20 \
-                                           -bin_size 0.5 \
-                                           -name "bin_size-0.5" &
+                                           -bin_size 0.1 \
+                                           --verbose \
+                                           -name "bin_size-0.1" &
 wait
