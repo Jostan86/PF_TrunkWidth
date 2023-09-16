@@ -131,7 +131,18 @@ class PFEngine:
         # return particles
 
     def save_odom(self, x_odom, theta_odom, time_stamp):
-        """Handle the odom message. This will be called every time an odom message is received."""
+        """Handle the odom message. This will be called every time an odom message is received.
+
+        Parameters
+        ----------
+        x_odom
+            The linear velocity of the robot in the forward direction, in meters per second
+        theta_odom
+            The angular velocity of the robot, in radians per second
+        time_stamp
+            The time stamp of the odom message, in seconds, i think it's utc time doesn't really matter since this
+            program zeros the time stamp on the first odom message
+            """
         # If this is the first odom message, zero the time and return
         if not self.odom_zerod:
             self.prev_t_odom = time_stamp
@@ -168,14 +179,18 @@ class PFEngine:
 
         # Make array of noise
         noise = np.random.randn(num_particles, 2) @ self.R
+        # Add noise to control/odometry velocities
         ud = u + noise.T
 
+        # Update particles based on control/odometry velocities and time step size
         self.particles.T[0, :] += dt * ud[0, :] * np.cos(self.particles.T[2, :])
         self.particles.T[1, :] += dt * ud[0, :] * np.sin(self.particles.T[2, :])
         self.particles.T[2, :] += dt * ud[1, :]
 
+        # Wrap angles between -pi and pi
         self.particles.T[2, :] = (self.particles.T[2, :] + np.pi) % (2 * np.pi) - np.pi
 
+        # Update best particle with raw odom velocities
         self.best_particle[0] += dt * u[0] * np.cos(self.best_particle[2])
         self.best_particle[1] += dt * u[0] * np.sin(self.best_particle[2])
         self.best_particle[2] += dt * u[1]
@@ -339,13 +354,7 @@ class PFEngine:
         if k == 1:
             return self.min_num_particles
 
-        # Calculate z_1-delta (upper 1-delta quantile of the standard normal distribution)
-        z_1_delta = norm.ppf(1 - self.delta)
 
-        # Calculate n using the derived formula
-        first_term = (k - 1) / (2 * self.epsilon)
-        second_term = (1 - (2 / (9 * (k - 1))) + np.sqrt(2 * z_1_delta / (9 * (k - 1)))) ** 3
-        n = first_term * second_term
 
         if n < self.min_num_particles:
             n = self.min_num_particles

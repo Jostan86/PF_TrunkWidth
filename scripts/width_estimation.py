@@ -794,20 +794,20 @@ class TrunkAnalyzer:
             #     # Show the image
             #     cv2.imshow('Segmented image', image)
             #     cv2.waitKey(1)
-            return None, None, None, image
+            return None, None, None, image, None
 
-        # img_x_position = np.zeros(self.num_instances, dtype=np.int32)
+        img_x_position = np.zeros(self.num_instances, dtype=np.int32)
         #
-        # for i, mask in enumerate(self.masks):
-        #     # Figure out the x location of the mask
-        #     img_x_position[i] = int(np.mean(np.where(mask)[1]))
+        for i, mask in enumerate(self.masks):
+            # Figure out the x location of the mask
+            img_x_position[i] = int(np.mean(np.where(mask)[1]))
 
         if show_seg:
             img = self.show_current_output("Segmented image", return_img=True, save_path=save_path)
-            return self.tree_locations, self.tree_widths, self.classes, img
+            return self.tree_locations, self.tree_widths, self.classes, img, img_x_position
             # cv2.waitKey(1)
         else:
-            return self.tree_locations, self.tree_widths, self.classes  # , img_x_position
+            return self.tree_locations, self.tree_widths, self.classes, img_x_position
 
 
 if __name__ == "__main__":

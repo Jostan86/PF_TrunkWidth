@@ -3,23 +3,20 @@
 from cv_bridge import CvBridge, CvBridgeError
 import os
 import rosbag
-import rospy
 from width_estimation import TrunkAnalyzer
 import json
 import numpy as np
 from pf_engine_cpy import PFEngine
 import cv2
 import time
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, \
     QPushButton, QSlider, QComboBox, QSizePolicy, QPlainTextEdit, QCheckBox, QMessageBox
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt
 import sys
 import bisect
 import time
 import pyqtgraph as pg
-import scipy.spatial
 import pandas as pd
 import csv
 from scipy.ndimage import label
@@ -31,7 +28,7 @@ from scipy.ndimage import label
 def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origin=True, origin_offset=5):
     # Path to the tree data dictionary
     tree_data_path = '/home/jostan/catkin_ws/src/pkgs_noetic/research_pkgs/orchard_data_analysis/data' \
-                     '/2020_11_bag_data/afternoon2/tree_list_mod3.json'
+                     '/2020_11_bag_data/afternoon2/tree_list_mod4.json'
 
     # Load the tree data dictionary
     with open(tree_data_path, 'rb') as f:
@@ -42,10 +39,9 @@ def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origi
     positions = []
     widths = []
     tree_nums = []
+    test_tree_nums = []
 
     for tree in tree_data:
-
-
 
         # Skip sprinklers if include_sprinklers is False
         if tree['class_estimate'] == 2 and not include_sprinklers:
@@ -54,8 +50,10 @@ def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origi
         # Save test trees as a different class if separate_test_trees is True
         if tree['test_tree'] and separate_test_trees:
             classes.append(3)
+            test_tree_nums.append(int(tree['test_tree_num']))
         else:
             classes.append(tree['class_estimate'])
+            test_tree_nums.append(None)
 
         # Move the tree positions by the gps adjustment
         position_estimate = np.array(tree['position_estimate']) + np.array(tree['gps_adjustment'])
@@ -68,12 +66,6 @@ def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origi
     positions = np.array(positions)
     widths = np.array(widths)
 
-
-    # # Remove the sprinklers
-    # positions = positions[classes != 2]
-    # widths = widths[classes != 2]
-    # classes = classes[classes != 2]
-
     if move_origin:
         # Find the min x and y values, subtract 5 and set that as the origin
         x_min = np.min(positions[:, 0]) - origin_offset
@@ -83,12 +75,12 @@ def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origi
         positions[:, 0] -= x_min
         positions[:, 1] -= y_min
 
-    map_data = {'classes': classes, 'positions': positions, 'widths': widths, 'tree_nums': tree_nums}
+    map_data = {'classes': classes, 'positions': positions, 'widths': widths, 'tree_nums': tree_nums, 'test_tree_nums': test_tree_nums}
 
     return map_data
 
 def get_test_starts():
-    df = pd.read_csv("test_starts.csv", header=1)
+    df = pd.read_csv("../data/test_starts.csv", header=1)
 
     starts = []
 
@@ -113,7 +105,6 @@ class ParticleMapPlotter(QMainWindow):
         # Create a pyqtgraph plot widget
         self.plot_widget = pg.PlotWidget()
 
-
         self.plot_widget.setAspectLocked(True, ratio=1)
         self.plot_widget.setBackground('w')  # 'w' is short for white
 
@@ -124,14 +115,17 @@ class ParticleMapPlotter(QMainWindow):
         self.main_widget.setLayout(layout)
         layout.addWidget(self.plot_widget)
 
-        # Your data
-        self.positions = np.array(map_data['positions'])  # Convert to numpy array for better performance
+        # Set the map data
+        self.positions = np.array(map_data['positions'])
         self.classes = np.array(map_data['classes'])
         self.tree_numbers = map_data['tree_nums']
+        self.test_tree_nums = map_data['test_tree_nums']
 
+        # Draw the map
         self.draw_plot()
 
     def draw_plot(self, particles=None):
+        """Method to draw the map on the plot widget"""
 
         # row_num_xs = [4.9, 5.5, 6.05, 6.65, 7.4, 7.45, 7.9, 8.65, 9.2, 9.65, 10.25, 10.65, 11.05, 11.6, 12.1, 12.65,
         #               13.2]
@@ -143,23 +137,38 @@ class ParticleMapPlotter(QMainWindow):
 
         tree_positions = self.positions[self.classes == 0]
         post_positions = self.positions[self.classes == 1]
+        test_tree_positions = self.positions[self.classes == 3]
+
+        dot_size = 8
 
         # Adding data to the plot widget
         self.plot_widget.plot(tree_positions[:, 0], tree_positions[:, 1], pen=None, symbol='o', symbolBrush='g',
-                              symbolSize=5, name='Trees')
+                              symbolSize=dot_size, name='Trees')
         self.plot_widget.plot(post_positions[:, 0], post_positions[:, 1], pen=None, symbol='o', symbolBrush='r',
-                              symbolSize=5, name='Posts')
+                              symbolSize=dot_size, name='Posts')
+        self.plot_widget.plot(test_tree_positions[:, 0], test_tree_positions[:, 1], pen=None, symbol='o',
+                                symbolBrush='b', symbolSize=dot_size, name='Test Trees')
 
+        # Add numbers to the trees if show_nums is True, which is toggled by a button in the app
         if self.show_nums:
             for i, (x, y) in enumerate(self.positions):
                 # tree_num_text = pg.TextItem(text=str(self.tree_numbers[i]), color=(0, 0, 0), anchor=(0.5, 0.5))
                 tree_num_text = pg.TextItem(
                     html='<div style="text-align: center"><span style="color: #000000; font-size: 8pt;">{}</span></div>'.format(
-                        self.tree_numbers[i]), anchor=(0.5, 0.5))
-
+                            self.tree_numbers[i]), anchor=(1.1, 0.5))
                 tree_num_text.setPos(x, y)
                 self.plot_widget.addItem(tree_num_text)
 
+                # Add test tree numbers
+                if self.classes[i] == 3:
+                    tree_num_text = pg.TextItem(
+                        html = '<div style="text-align: center"><span style="color: #000000; font-size: 8pt;">{}</span></div>'.format(
+                            self.test_tree_nums[i]), anchor = (-0.1, 0.5))
+                    tree_num_text.setPos(x, y)
+                    self.plot_widget.addItem(tree_num_text)
+
+        # Add particles to the plot widget
+        # If no particles are given, add 100 particles at the origin, as a placeholder. Otherwise, add the given particles
         if particles is None:
             particles = np.zeros((100, 2))
         else:
@@ -168,14 +177,11 @@ class ParticleMapPlotter(QMainWindow):
 
         self.particle_plot_item = self.plot_widget.plot(particles[:, 0], particles[:, 1], pen=None, symbol='o',
                                                         symbolBrush='b', symbolSize=2, name='Particles')
-        # self.plot_widget.addItem(self.particle_plot_item)
 
         if particles is not None:
             self.update_particles(particles)
 
     def update_particles(self, particles):
-
-
 
         if particles is not None:
             particles = self.downsample_particles(particles)
@@ -184,11 +190,10 @@ class ParticleMapPlotter(QMainWindow):
             particles = np.zeros((100, 2))
             self.particle_plot_item.setData(particles[:, 0], particles[:, 1])
 
-
-
     def downsample_particles(self, particles, max_samples=10000):
         """
-        Downsample a 2D array of particles to a maximum number of samples.
+        Downsample a 2D array of particles to a maximum number of samples. This is useful for plotting large numbers of
+        particles without slowing down the GUI.
 
         Parameters:
         - particles: 2D numpy array of shape (n, 2)
@@ -206,6 +211,7 @@ class ParticleMapPlotter(QMainWindow):
 
 class MyMainWindow(QMainWindow):
     def __init__(self):
+        """Constructs the GUI for the particle filter app"""
         super(MyMainWindow, self).__init__()
 
         # Set up the main window
@@ -377,7 +383,17 @@ class MyMainWindow(QMainWindow):
         bottom_buttons_layout.addWidget(self.plot_nums_toggle_button)
         bottom_buttons_layout.addWidget(self.save_data_button)
 
-        self.map_data = get_map_data()
+        save_diam_data_layout = QHBoxLayout()
+        self.tree_num_line = QLineEdit()
+        self.tree_num_line.setFixedWidth(100)
+        tree_num_label = QLabel("Test Tree Number:")
+        tree_num_label.setFixedWidth(150)
+        save_diam_data_layout.addWidget(tree_num_label)
+        save_diam_data_layout.addWidget(self.tree_num_line)
+        self.save_diam_data_button = QPushButton("Begin Saving")
+        save_diam_data_layout.addWidget(self.save_diam_data_button)
+
+        self.map_data = get_map_data(separate_test_trees=True)
 
         self.plotter = ParticleMapPlotter(self.map_data)
 
@@ -399,6 +415,7 @@ class MyMainWindow(QMainWindow):
         left_layout.addLayout(bag_time_line_layout)
         left_layout.addWidget(self.console)
         left_layout.addLayout(bottom_buttons_layout)
+        left_layout.addLayout(save_diam_data_layout)
 
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.plotter)
@@ -417,7 +434,6 @@ class MyMainWindow(QMainWindow):
     def clear_console(self):
         self.console.clear()
 
-
     def load_image(self, img=None):
         """
         Load an image into the GUI image viewer
@@ -429,9 +445,11 @@ class MyMainWindow(QMainWindow):
         -------
 
         """
+        # If image is none make a blank image
         if img is None:
             img = np.ones((480, 640, 3), dtype=np.uint8) * 155
 
+        # Convert the image to a Qt image and display it
         image_cv2 = img
         image_rgb = cv2.cvtColor(image_cv2, cv2.COLOR_BGR2RGB)
         image_qt = QImage(image_rgb.data, image_rgb.shape[1], image_rgb.shape[0], QImage.Format_RGB888)
@@ -442,9 +460,6 @@ class MyMainWindow(QMainWindow):
         # update to ensure the image is shown
         QApplication.processEvents()
 
-
-
-
 class ParticleFilterBagFiles:
     def __init__(self, app):
         self.bridge = CvBridge()
@@ -452,9 +467,9 @@ class ParticleFilterBagFiles:
         self.qt_window = MyMainWindow()
         self.qt_app = app
 
-        # self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
         # self.bag_file_dir = "/media/jostan/MOAD/research_data/"
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
+        # self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
         # self.bag_file_dir = "/media/jostan/portabits/sept6/"
 
         self.img_base_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/yolo_segs/"
@@ -474,18 +489,33 @@ class ParticleFilterBagFiles:
         self.start_time = None
 
         self.pf_active = False
+        #
+        self.start_pose_center = [16, 99.2]
+        self.particle_density = 500
+        self.start_width = 6
+        self.start_height = 20
+        self.start_rotation = -32
 
-        # self.start_pose_center = [42.7, 92.6]
-        # self.particle_density = 500
-        # self.start_width = 4
-        # self.start_height = 20
+        # self.start_pose_center = [38.5, 106]
+        # self.particle_density = 1000
+        # self.start_width = 2
+        # self.start_height = 4
         # self.start_rotation = -32
 
-        self.start_pose_center = [38.5, 106]
-        self.particle_density = 1000
-        self.start_width = 2
-        self.start_height = 4
-        self.start_rotation = -32
+        # Start for beginning of row106_107_sept.bag
+        # self.start_pose_center = [11, 66.3]
+        # self.particle_density = 500
+        # self.start_width = 2
+        # self.start_height = 10
+        # self.start_rotation = -32
+
+        # # Start for 72 sec in row106_107_sept.bag, at tree 795
+        # self.start_pose_center = [28, 95]
+        # self.particle_density = 250
+        # self.start_width = 20
+        # self.start_height = 20
+        # self.start_rotation = 0
+
 
         self.x_offset = 0.8
         self.y_offset = -0.55
@@ -501,12 +531,10 @@ class ParticleFilterBagFiles:
 
         self.map_data = get_map_data()
 
-
-
         self.trunk_analyzer = TrunkAnalyzer()
 
-        # self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
-        self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
+        self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
+        # self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
 
         self.qt_window.reset_button.clicked.connect(self.reset_app)
         self.qt_window.start_stop_button.clicked.connect(self.start_stop_button_clicked)
@@ -530,6 +558,14 @@ class ParticleFilterBagFiles:
         # Connect the mode selector
         self.qt_window.mode_selector.currentIndexChanged.connect(self.mode_changed)
         # self.qt_window.test_selector.currentIndexChanged.connect(self.test_changed)
+
+        self.qt_window.save_diam_data_button.clicked.connect(self.save_diam_data_button_clicked)
+
+        self.save_diam_data = False
+        self.width_estimates = []
+        self.img_x_positions = []
+        self.save_diam_data_dir = "../data/diam_data/"
+        self.diam_data_set_name = "mope_2023_"
 
 
         self.use_loaded_data = False
@@ -557,21 +593,26 @@ class ParticleFilterBagFiles:
         self.run_num = 0
         self.convergence_threshold = 0.5
 
+        # self.qt_window.use_saved_data_checkbox.setChecked(True)
+        self.qt_window.stop_when_converged.setChecked(True)
 
         self.reset_app()
         self.mode_changed()
         self.use_saved_data_changed()
 
-        # self.qt_window.data_file_selector.setCurrentIndex(5)
-        # self.open_bag_file_button_clicked()
-
-        self.qt_window.bag_time_line.setText("106.9")
-        self.time_stamp_line_edited()
-
-        self.qt_window.mode_selector.setCurrentIndex(1)
-        self.mode_changed()
+        # # Select the first item in the combo box
+        # self.qt_window.data_file_selector.setCurrentIndex(1)
+        # self.open_bag_file(self.qt_window.data_file_selector.currentText())
 
 
+
+        # self.qt_window.bag_time_line.setText("72")
+        # self.time_stamp_line_edited()
+
+        # self.qt_window.mode_selector.setCurrentIndex(1)
+        # self.mode_changed()
+
+#760
 
 
 
@@ -597,21 +638,27 @@ class ParticleFilterBagFiles:
                                   start_pose_height=self.start_height, start_pose_width=self.start_width,
                                   num_particles=self.num_particles, rotation=np.deg2rad(self.start_rotation),)
         self.pf_engine.include_width = self.qt_window.include_width_checkbox.isChecked()
-        # self.pf_engine.dist_sd = 0.1
-        self.pf_engine.R = np.diag([.6, np.deg2rad(20.0)]) ** 2
-        self.pf_engine.bin_size = 0.3
-        self.pf_engine.bin_angle = np.deg2rad(5.0)
 
-        adjusted_particles = self.pf_engine.particles.copy()
-        # # Calculate sin and cos of particle angles
-        # s = np.sin(adjusted_particles[:, 2])
-        # c = np.cos(adjusted_particles[:, 2])
+        # # Good settings for achyut's data:
+        # self.pf_engine.R = np.diag([.6, np.deg2rad(20.0)]) ** 2
+        # self.pf_engine.dist_sd = 0.4
+        # self.pf_engine.width_sd = 0.03
         #
-        # # Rotate the particles by the robot's orientation
-        # adjusted_particles[:, 0] = adjusted_particles[:, 0] + c * self.x_offset - s * self.y_offset
-        # adjusted_particles[:, 1] = adjusted_particles[:, 1] + s * self.x_offset + c * self.y_offset
+        # self.pf_engine.bin_size = 0.5
+        # self.pf_engine.bin_angle = np.deg2rad(4.0)
+        # self.pf_engine.epsilon = 0.03
 
-        self.qt_window.plotter.update_particles(adjusted_particles)
+        # Good settings for feb_2023 data:
+        self.pf_engine.R = np.diag([.7, np.deg2rad(25.0)]) ** 2
+        self.pf_engine.dist_sd = 0.45
+        self.pf_engine.width_sd = 0.03
+
+        self.pf_engine.bin_size = 0.5
+        self.pf_engine.bin_angle = np.deg2rad(4.0)
+        self.pf_engine.epsilon = 0.05
+
+
+        self.qt_window.plotter.update_particles(self.pf_engine.particles)
 
 
     def start_stop_button_clicked(self):
@@ -694,16 +741,6 @@ class ParticleFilterBagFiles:
         convergences = np.array(self.convergences)
         run_times = np.array(self.run_times)
 
-        # Could also be measureing how many images it had to look at, although i guess that doesn't really tell me time
-
-        # Maybe the benchmark idea is best, but idk about that either
-
-        # can also track number of particles over time, could maybe somehow combine that with the other ideas
-
-        # Here's what I'll do. I just had GPT make me a benchmark script which I'll run and report, I'll also make a
-        # seperate script that runs the pf for a standard start location maybe like 30 times and reports the average
-        # time to convergence and correct convergence rate.
-
         # Calculate the convergence rate for each start location
         convergence_rates = np.sum(convergences, axis=1) / self.num_trials
 
@@ -738,11 +775,6 @@ class ParticleFilterBagFiles:
         self.qt_window.console.appendPlainText("Overall Average Time Converged: {}".format(overall_avg_time_converged))
         self.qt_window.console.appendPlainText("Overall Average Convergence Rate: {}".format(overall_avg_convergence_rate))
 
-
-
-
-
-
     def include_width_changed(self):
         self.pf_engine.include_width = self.qt_window.include_width_checkbox.isChecked()
 
@@ -760,10 +792,6 @@ class ParticleFilterBagFiles:
             for file in self.data_file_names:
                 self.qt_window.data_file_selector.addItem(file)
 
-            # Select the first item in the combo box
-            self.qt_window.data_file_selector.setCurrentIndex(0)
-            self.open_bag_file(self.qt_window.data_file_selector.currentText())
-
         else:
             self.data_file_names = os.listdir(self.saved_data_dir)
             self.data_file_names.sort()
@@ -773,7 +801,6 @@ class ParticleFilterBagFiles:
             self.qt_window.data_file_selector.setCurrentIndex(0)
             self.open_saved_data()
 
-
     def show_image_changed(self):
         self.show_loaded_img = self.qt_window.show_image_checkbox.isChecked()
 
@@ -782,7 +809,6 @@ class ParticleFilterBagFiles:
 
     def save_data_checkbox_changed(self):
         self.save_data = self.qt_window.save_data_checkbox.isChecked()
-
 
     def mode_changed(self):
 
@@ -858,21 +884,31 @@ class ParticleFilterBagFiles:
     def run_pf(self):
         while self.pf_active:
             self.send_next_msg()
-            if self.pf_engine.histogram is not None and self.qt_window.stop_when_converged.isChecked() \
-                    and self.img_data[self.cur_img_pos] is not None and self.msg_order[self.cur_data_pos] == 1:
-                start_time_dist = time.time()
-                correct_convergence = self.check_convergence(self.pf_engine.histogram)
-                print("Particles Converged: {}".format(correct_convergence))
-                if correct_convergence:
-                    self.pf_active = False
-                self.round_exclude_time += time.time() - start_time_dist
+            if self.pf_engine.histogram is not None and self.qt_window.stop_when_converged.isChecked():
+                converged = True
+                # This is just a dumb stuff i had to add because i did the img_data different for the loaded data,
+                # and i did idk, something wierd here, but it works now
+                if self.use_loaded_data:
+                    if self.img_data[self.cur_img_pos] is None or self.msg_order[self.cur_data_pos] != 1:
+                        converged = False
+                elif self.cur_data_pos >= len(self.msg_order):
+                    converged = False
+                elif not self.use_loaded_data and self.msg_order[self.cur_data_pos] != 1:
+                    converged = False
+
+                if converged:
+                    start_time_dist = time.time()
+                    correct_convergence = self.check_convergence(self.pf_engine.histogram)
+                    print("Particles Converged: {}".format(correct_convergence))
+                    if correct_convergence:
+                        self.pf_active = False
+                    self.round_exclude_time += time.time() - start_time_dist
 
     def update_img_label(self):
         if self.use_loaded_data:
             self.qt_window.img_number_label.setText("Image: " + str(self.cur_img_pos + 1) + "/" + str(len(self.img_data)))
         else:
             self.qt_window.img_number_label.setText("Image: " + str(self.cur_img_pos + 1) + "/" + str(len(self.paired_imgs)))
-
 
     def send_next_msg(self):
 
@@ -943,14 +979,15 @@ class ParticleFilterBagFiles:
                     tree_positions = np.array(img_data['tree_data']['positions'])
                     widths = np.array(img_data['tree_data']['widths'])
                     classes = np.array(img_data['tree_data']['classes'])
+                    img_x_positions = np.array(img_data['tree_data']['img_x_positions'])
                 else:
                     tree_positions = None
                     widths = None
                     classes = None
-
+                    img_x_positions = None
 
             else:
-                tree_positions, widths, classes = self.get_trunk_data()
+                tree_positions, widths, classes, img_x_positions = self.get_trunk_data()
 
                 if self.save_data:
                     timestamp = str(int(1000 * self.time_stamps_img[self.cur_img_pos]))
@@ -972,7 +1009,10 @@ class ParticleFilterBagFiles:
                 tree_positions[:, 0] += self.x_offset
                 tree_positions[:, 1] += self.y_offset
 
-                widths -= 0.01
+                # widths -= 0.01
+                img_x_positions = abs(img_x_positions - 320)
+                # Values obtained from calibrate_widths.py, sept = True, poly = False
+                widths = -0.006246 + (-2.0884248893265422e-05 * img_x_positions) + (1.057907234666699 * widths)
 
                 tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
                 # self.pf_engine.save_scan(tree_data)
@@ -980,20 +1020,12 @@ class ParticleFilterBagFiles:
             else:
                 self.pf_engine.resample_particles()
 
+            print(self.pf_engine.particles.shape)
+
             if self.show_plot_updates:
                 start_time = time.time()
-                # for msg in self.pf_engine.scan_info_msgs:
-                #     self.qt_window.console.appendPlainText(msg)
-                adjusted_particles = self.pf_engine.particles.copy()
-                # # Calculate sin and cos of particle angles
-                # s = np.sin(adjusted_particles[:, 2])
-                # c = np.cos(adjusted_particles[:, 2])
-                #
-                # # Rotate the particles by the robot's orientation
-                # adjusted_particles[:, 0] = adjusted_particles[:, 0] + c * self.x_offset - s * self.y_offset
-                # adjusted_particles[:, 1] = adjusted_particles[:, 1] + s * self.x_offset + c * self.y_offset
 
-                self.qt_window.plotter.update_particles(adjusted_particles)
+                self.qt_window.plotter.update_particles(self.pf_engine.particles)
 
                 # ensure plot updates by refreshing the GUI
                 self.qt_app.processEvents()
@@ -1014,7 +1046,7 @@ class ParticleFilterBagFiles:
     def get_trunk_data(self):
         time_start = time.time()
         # try:
-        tree_positions, widths, classes, img_seg = self.trunk_analyzer.pf_helper(
+        tree_positions, widths, classes, img_seg, img_x_positions = self.trunk_analyzer.pf_helper(
             self.paired_imgs[self.cur_img_pos][1],
             self.paired_imgs[self.cur_img_pos][0],
             show_seg=True)
@@ -1048,7 +1080,22 @@ class ParticleFilterBagFiles:
             file_name = self.img_base_dir + "run_" + str(self.run_num) + "/" + timestamp + ".png"
             cv2.imwrite(file_name, img_seg)
 
-        return tree_positions, widths, classes
+        if self.save_diam_data:
+            if widths is None:
+                pass
+            else:
+                if len(widths) > 1:
+                    width, img_x_position = self.multi_width_popup(widths, img_x_positions)
+                else:
+                    width = widths[0]
+                    img_x_position = img_x_positions[0]
+                # convert width to a python float and img_x_position to a python int
+                width = float(width)
+                img_x_position = int(img_x_position)
+                self.img_x_positions.append(img_x_position)
+                self.width_estimates.append(width)
+
+        return tree_positions, widths, classes, img_x_positions
 
     def post_a_time(self, time_s, msg, ms=True):
         time_tot = (time.time() - time_s)
@@ -1063,7 +1110,6 @@ class ParticleFilterBagFiles:
 
 
     def prev_button_clicked(self):
-
 
         self.cur_data_pos -= 1
         while self.msg_order[self.cur_data_pos] != 1 and self.cur_data_pos > 0:
@@ -1130,7 +1176,7 @@ class ParticleFilterBagFiles:
         self.update_img_label()
 
     def get_segmentation(self):
-        _, _, _, = self.get_trunk_data()
+        _, _, _, _ = self.get_trunk_data()
 
     def load_saved_img(self, time_stamp):
         if self.show_loaded_img:
@@ -1423,13 +1469,43 @@ class ParticleFilterBagFiles:
         else:
             return False
 
-        # return num_features == 1
+    def save_diam_data_button_clicked(self):
+        if self.qt_window.save_diam_data_button.text() == "Begin Saving":
 
-    def cam_to_robot_frame(self, points, x_offset, y_offset):
-        # Convert the points from the camera frame to the robot frame
-        points[:, 0] += x_offset
-        points[:, 1] += y_offset
-        return points
+            self.qt_window.save_diam_data_button.setText("Done Saving")
+            self.save_diam_data = True
+            self.width_estimates = []
+            self.img_x_positions = []
+        else:
+            tree_num = int(self.qt_window.tree_num_line.text())
+            diam_data = {'width_estimates': self.width_estimates, 'img_x_positions': self.img_x_positions, 'tree_num': tree_num}
+            # Save the data to a file
+            file_name = self.save_diam_data_dir + self.diam_data_set_name + str(tree_num) + '.json'
+            with open(file_name, 'w') as outfile:
+                json.dump(diam_data, outfile)
+
+            self.qt_window.save_diam_data_button.setText("Begin Saving")
+            self.qt_window.tree_num_line.setText("")
+            self.save_diam_data = False
+
+    def multi_width_popup(self, width_list, img_x_positions):
+        # Ask the user which width to use given the list of widths and the corresponding image x positions
+        msg_box = QMessageBox()
+        msg_box.setText("Which width should be used?, Options: " + str(width_list))
+        msg_box.setWindowTitle("Multiple Widths")
+        buttons = []
+        for i in range(len(width_list)):
+            img_x_position = str(round(img_x_positions[i], 0))
+            buttons.append(msg_box.addButton(img_x_position, QMessageBox.ActionRole))
+        msg_box.setDefaultButton(buttons[0])
+        msg_box.exec_()
+
+
+        for i in range(len(width_list)):
+            if msg_box.clickedButton() == buttons[i]:
+                print("Width: ", width_list[i], "Img X Position: ", img_x_positions[i])
+                return width_list[i], img_x_positions[i]
+
 
 
 

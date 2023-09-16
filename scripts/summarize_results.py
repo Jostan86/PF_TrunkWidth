@@ -1,5 +1,6 @@
 import csv
 import os
+import sys
 
 
 def extract_data_from_csvs(directory):
@@ -24,7 +25,11 @@ def extract_data_from_csvs(directory):
                 overall_avg_time_converged = lines[0].split(",")[1].strip()
                 overall_avg_conv_rate = lines[1].split(",")[1].strip()
                 benchmark_time = lines[2].split(",")[1].strip()
-                adjusted_time = float(overall_avg_time_converged) * (5/float(benchmark_time))
+                try:
+                    adjusted_time = float(overall_avg_time_converged) * (5/float(benchmark_time))
+                except ZeroDivisionError:
+                    print(f"ZeroDivisionError: {filename}")
+                    adjusted_time = float(overall_avg_time_converged) * (5/float(12))
                 adjusted_time = round(adjusted_time, 2)
                 data.append([filename, overall_avg_time_converged, overall_avg_conv_rate, benchmark_time, adjusted_time])
 
@@ -40,4 +45,4 @@ def extract_data_from_csvs(directory):
 # extract_data_from_csvs('/path/to/directory')
 
 if __name__=='__main__':
-    extract_data_from_csvs('results_kld2/')
+    extract_data_from_csvs('../data/test_results/results_kld3/')

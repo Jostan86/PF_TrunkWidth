@@ -63,7 +63,7 @@ def parse_args():
 
 def get_map_data(args, include_sprinklers=False, separate_test_trees=False, move_origin=True, origin_offset=5):
     # Path to the tree data dictionary
-    tree_data_path = args.directory_data + 'tree_list_mod3.json'
+    tree_data_path = args.directory_data + 'tree_list_mod4.json'
 
     # Load the tree data dictionary
     with open(tree_data_path, 'rb') as f:
@@ -317,6 +317,11 @@ class ParticleFilterEvaluator:
                 widths = np.array(img_data['tree_data']['widths'])
                 classes = np.array(img_data['tree_data']['classes'])
 
+                if not self.running_benchmark:
+                    img_x_positions = np.array(img_data['tree_data']['img_x_positions'])
+                    img_x_positions = abs(img_x_positions - 320)
+                    widths = -0.006246 + (-2.0884248893265422e-05 * img_x_positions) + (1.057907234666699 * widths)
+
                 tree_data = {'positions': tree_positions, 'widths': widths, 'classes': classes}
                 if self.running_benchmark:
                     self.pf_engine.save_scan(tree_data)
@@ -468,7 +473,7 @@ class ParticleFilterEvaluator:
         self.odom_data = []
         t_start = None
 
-        data_file_path = self.saved_data_dir + "run_" + str(int(run_num)) + "_gt_data.json"
+        data_file_path = self.saved_data_dir + "run_" + str(int(run_num)) + "_gt_data_x_pos.json"
 
         loaded_data = json.load(open(data_file_path))
 
