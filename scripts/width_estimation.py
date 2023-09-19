@@ -123,110 +123,70 @@ class TrunkAnalyzer:
             self.tree_widths = self.tree_widths[keep_indices]
             self.tree_locations = self.tree_locations[keep_indices]
 
-    def get_st(self, mask):
-        """
-        Attains the best estimate of the diameter of the tree in pixels.
+    def get_width_pix(self, mask):
 
-        Args:
-            mask (): Binary mask of the trunk.
-
-        Returns:
-            diameter_pixels (): Diameter of the trunk in pixels.
-        """
-
-        # The function returns two arrays: medial_axis containing the boolean mask of the medial axis, and return_distance
-        # containing the distance transform of the binary mask, which assigns to each pixel the distance to the closest background pixel.
+        # Get the medial axis and distance transform of the mask.
+        # The distance transform assigns to each pixel the distance to the closest background pixel.
+        # The medial axis is the set of pixels that are equidistant to two or more background pixels. So for a
+        # rectangle it would be the center line of the rectangle with ys at the top and bottom towards the corners.
         medial_axis, return_distance = morphology.medial_axis(mask, return_distance=True)
 
         # Get the number of medial axes in each row
         axes_per_row = medial_axis.sum(axis=1)
 
-        # Find the longest medial axis, where there is only one medial axis in the row for the duration
-        pre = 0
-        # mlen, mstart, mend = 0, -1, -1
-        # tlen, tstart, tend = 0, -1, -1
-        # for i in range(axes_per_row.shape[0]):
-        #     # If there is one medial axis in the row, then start counting the length of the medial axis
-        #     if axes_per_row[i] == 1:
-        #         if pre == 0:
-        #             pre = 1
-        #             tstart = i
-        #             tlen = 0
-        #         tlen += 1
-        #
-        #     else:
-        #         if axes_per_row[max(i - 1,0)] == 1 and axes_per_row[min(i + 1, image.shape[0] - 1)] == 1:
-        #             medial_axis[i] = 1
-        #             tlen += 1
-        #         elif pre == 1:
-        #             pre = 0
-        #             if tlen > mlen:
-        #                 mlen = tlen
-        #                 mend = i
-        #                 mstart = tstart
-        #
-        # if tlen > mlen:
-        #     mend = medial_axis.shape[0]
-        #     mstart = tstart
-        mlen, mstart, mend = 0, -1, -1
-        tlen, tstart, tend = 0, -1, -1
-        for i in range(axes_per_row.shape[0]):
-            # If there is one medial axis in the row, then start counting the length of the medial axis
-            if axes_per_row[i] == 1:
-                if pre == 0:
-                    pre = 1
-                    tstart = i
-                    tlen = 0
-                tlen += 1
-            else:
-                if axes_per_row[max(i - 1, 0)] == 1 and axes_per_row[min(i + 1, mask.shape[0] - 1)] == 1:
-                    medial_axis[i] = 0
-                elif pre == 1:
-                    pre = 0
-                    # print(tlen,tstart,i)
-                    # print(mlen,mstart,mend)
-                    # print('---')
-                    if tlen > mlen:
-                        mlen = tlen
-                        mend = i
-                        mstart = tstart
-                    # tlen=0
+        # Get the indices of the rows that have a medial axis value of one
+        one_indices = np.nonzero(axes_per_row == 1)[0]
 
-        if tlen > mlen:
-            mlen = tlen
-            mend = axes_per_row.shape[0]
-            mstart = tstart
-            tlen = 0
+        # Find the differences between consecutive non-zero indices
+        consecutive_diffs = np.diff(one_indices)
 
-        # Make 1d mask of the longest medial axis
-        b2 = np.zeros_like(axes_per_row)
-        b2[mstart:mend] = 1
+        # Identify the start and end indices of the continuous segments
+        change_indices = np.nonzero(consecutive_diffs > 1)[0]
+        start_indices = np.append(np.array([0]), change_indices + 1)
+        end_indices = change_indices
+        end_indices = np.append(end_indices, len(one_indices) - 1)
 
-        # Make 2d mask of the longest medial axis
-        medial_axis = medial_axis * b2[:, np.newaxis].astype(bool)
-        # Get the distance from the medial axis to the edge of the mask for each row along the medial axis
-        return_distance0 = return_distance * medial_axis
-        return_distance1 = np.max(return_distance0, axis=1)
-        return_distance2 = return_distance1[mstart:mend]
+        # Find the longest segment
+        segment_lengths = end_indices - start_indices
+        longest_segment_index = np.argmax(segment_lengths)
 
-        # Take the cumulative sum, then cut off the first 20% and last 20% of the medial axis
-        diff = mend - mstart
-        diff2 = int(diff * 0.2)
-        return_distance3 = np.cumsum(return_distance2)[:-diff2]
-        return_distance3 = return_distance3[diff2:]
+        # Get the start and end index of the longest segment
+        mstart = one_indices[start_indices[longest_segment_index]]
+        mend = one_indices[end_indices[longest_segment_index]]
+        mlen = segment_lengths[longest_segment_index]
 
-        # Take the difference between the cumulative sum and the cumulative sum shifted by 20 pixels
-        return_distance4 = return_distance3[20:] - return_distance3[:-20]
+        # Make array of zeros the same size as the number of rows in the mask, with ones in the rows that have a medial axis
+        medial_axis_mask = np.zeros_like(axes_per_row)
+        medial_axis_mask[mstart:mend] = 1
 
-        # Find the indices of the 40% of the remaining medial axis with the smallest distance to the edge of the mask
-        k = int(return_distance4.shape[0] * 0.4)
-        idx1 = np.argpartition(return_distance4, k)[:k]
-        real_idx = idx1 + mstart + 10
-        real_idx += diff2
+        # Get the return distance of the pixels along the medial axis
+        return_distance_masked = return_distance * medial_axis_mask[:, np.newaxis].astype(bool)
+        return_distance_axis = np.max(return_distance_masked, axis=1)
+        return_distance_axis = return_distance_axis[mstart:mend]
 
-        diameter_pixels = return_distance1[real_idx] * 2
+        cut_off_dist = int(mlen * 0.2)
+        return_distance_axis_trimmed = np.cumsum(return_distance_axis)[:-cut_off_dist]
+        return_distance_axis_trimmed = return_distance_axis_trimmed[cut_off_dist:]
+
+        # Calculate the difference between elements separated by a window of 20 in return_distance_axis_trimmed (effectively a discrete derivative)
+        return_distance_axis_derv = return_distance_axis_trimmed[20:] - return_distance_axis_trimmed[:-20]
+
+        # Determine how many of the smallest elements in return_distance4 to consider (40% of the length of the array)
+        k = int(return_distance_axis_derv.shape[0] * 0.4)
+
+        # Find the indices of the k smallest elements in return_distance_axis_derv
+        idx1 = np.argpartition(return_distance_axis_derv, k)[:k]
+
+        # Calculate the real indices in the original return_distance_axis array
+        # by accounting for the shift introduced when computing return_distance4 (10 positions), and the offset
+        # introduced when removing the top and bottom 20% of values
+        real_idx = idx1 + 10 + cut_off_dist
+
+        # Retrieve the distances at the calculated indices from return_distance1 and double them to estimate the trunk diameter in pixels at those points
+        diameter_pixels = return_distance_axis[real_idx] * 2
 
         return diameter_pixels
+
 
     def calculate_depth(self, top_ignore=0.4, bottom_ignore=0.20, min_num_points=300,
                         depth_filter_percentile_upper=65, depth_filter_percentile_lower=35):
@@ -325,7 +285,7 @@ class TrunkAnalyzer:
         for i, (mask, depth) in enumerate(zip(self.masks, self.depth_median)):
 
             # Get the diameter of the tree in pixels
-            diameter_pixels = self.get_st(mask)
+            diameter_pixels = self.get_width_pix(mask)
 
             # get image width in pixels
             image_width_pixels = mask.shape[1]
