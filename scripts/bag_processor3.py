@@ -20,12 +20,13 @@ import pyqtgraph as pg
 import pandas as pd
 import csv
 from scipy.ndimage import label
+from scipy.spatial import KDTree
 
 
 # To run in pycharm add the following environment variable:
 # LD_PRELOAD: Set it to /usr/lib/x86_64-linux-gnu/libstdc++.so.6
 
-def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origin=True, origin_offset=5):
+def get_map_data(include_sprinklers=False, move_origin=True, origin_offset=5):
     # Path to the tree data dictionary
     tree_data_path = '/home/jostan/catkin_ws/src/pkgs_noetic/research_pkgs/orchard_data_analysis/data' \
                      '/2020_11_bag_data/afternoon2/tree_list_mod4.json'
@@ -48,13 +49,12 @@ def get_map_data(include_sprinklers=False, separate_test_trees=False, move_origi
             continue
 
         # Save test trees as a different class if separate_test_trees is True
-        if tree['test_tree'] and separate_test_trees:
-            classes.append(3)
+        if tree['test_tree']:
             test_tree_nums.append(int(tree['test_tree_num']))
         else:
-            classes.append(tree['class_estimate'])
             test_tree_nums.append(None)
 
+        classes.append(tree['class_estimate'])
         # Move the tree positions by the gps adjustment
         position_estimate = np.array(tree['position_estimate']) + np.array(tree['gps_adjustment'])
         positions.append(position_estimate.tolist())
@@ -120,8 +120,11 @@ class ParticleMapPlotter(QMainWindow):
         self.classes = np.array(map_data['classes'])
         self.tree_numbers = map_data['tree_nums']
         self.test_tree_nums = map_data['test_tree_nums']
+        test_trees = np.array([0 if num is None else 1 for num in map_data['test_tree_nums']])
+        # Set class to 3 for test trees
+        self.classes[test_trees == 1] = 3
 
-        # Draw the map
+        # # Draw the map
         self.draw_plot()
 
     def draw_plot(self, particles=None):
@@ -139,15 +142,16 @@ class ParticleMapPlotter(QMainWindow):
         post_positions = self.positions[self.classes == 1]
         test_tree_positions = self.positions[self.classes == 3]
 
-        dot_size = 8
+
+        self.dot_size = 10
 
         # Adding data to the plot widget
         self.plot_widget.plot(tree_positions[:, 0], tree_positions[:, 1], pen=None, symbol='o', symbolBrush='g',
-                              symbolSize=dot_size, name='Trees')
+                              symbolSize=self.dot_size, name='Trees')
         self.plot_widget.plot(post_positions[:, 0], post_positions[:, 1], pen=None, symbol='o', symbolBrush='r',
-                              symbolSize=dot_size, name='Posts')
+                              symbolSize=self.dot_size, name='Posts')
         self.plot_widget.plot(test_tree_positions[:, 0], test_tree_positions[:, 1], pen=None, symbol='o',
-                                symbolBrush='b', symbolSize=dot_size, name='Test Trees')
+                              symbolBrush=(0, 81, 180), symbolSize=self.dot_size, name='Test Trees')
 
         # Add numbers to the trees if show_nums is True, which is toggled by a button in the app
         if self.show_nums:
@@ -171,12 +175,21 @@ class ParticleMapPlotter(QMainWindow):
         # If no particles are given, add 100 particles at the origin, as a placeholder. Otherwise, add the given particles
         if particles is None:
             particles = np.zeros((100, 2))
-        else:
-            # Add a third column of zeros to the particles
-            particles = np.hstack((particles, np.zeros((particles.shape[0], 1))))
 
         self.particle_plot_item = self.plot_widget.plot(particles[:, 0], particles[:, 1], pen=None, symbol='o',
                                                         symbolBrush='b', symbolSize=2, name='Particles')
+
+        self.best_guess_plot_item = self.plot_widget.plot([], [], pen=None, symbol='o', symbolBrush='r',
+                                                          symbolSize=10, name='Test Trees')
+
+        self.in_progress_tree_plot_item = self.plot_widget.plot([], [], pen=None, symbol='o', symbolBrush=(211, 0,
+                                                                                                           255),
+                                                          symbolSize=self.dot_size, name='Test Trees')
+
+        self.complete_plot_item = self.plot_widget.plot([], [], pen=None, symbol='o', symbolBrush=(138, 187, 248),
+                                                          symbolSize=self.dot_size, name='Test Trees')
+
+
 
         if particles is not None:
             self.update_particles(particles)
@@ -189,6 +202,20 @@ class ParticleMapPlotter(QMainWindow):
         else:
             particles = np.zeros((100, 2))
             self.particle_plot_item.setData(particles[:, 0], particles[:, 1])
+
+
+    def update_best_guess(self, best_guess_position):
+        self.best_guess_plot_item.setData([best_guess_position[0]], [best_guess_position[1]])
+
+    def update_in_progress_tree(self, in_progress_tree_position):
+        self.in_progress_tree_plot_item.setData([in_progress_tree_position[0]], [in_progress_tree_position[1]])
+
+    def update_complete(self, complete_position):
+        if len(complete_position) == 1:
+            complete_position = complete_position[0]
+            self.complete_plot_item.setData([complete_position[0]], [complete_position[1]])
+        else:
+            self.complete_plot_item.setData(complete_position[:, 0], complete_position[:, 1])
 
     def downsample_particles(self, particles, max_samples=10000):
         """
@@ -276,11 +303,14 @@ class MyMainWindow(QMainWindow):
         self.save_data_checkbox.setChecked(False)
         self.stop_when_converged = QCheckBox("Stop When Converged")
         self.stop_when_converged.setChecked(False)
+        self.signal_test_trees_checkbox = QCheckBox("Signal Test Trees")
+        self.signal_test_trees_checkbox.setChecked(True)
 
         checkbox_layout1 = QHBoxLayout()
         checkbox_layout1.addWidget(self.include_width_checkbox)
         checkbox_layout1.addWidget(self.stop_when_converged)
         checkbox_layout1.addWidget(self.save_data_checkbox)
+        checkbox_layout1.addWidget(self.signal_test_trees_checkbox)
         checkbox_layout1.addStretch(1)
 
         self.use_saved_data_checkbox = QCheckBox("Use saved data")
@@ -393,7 +423,7 @@ class MyMainWindow(QMainWindow):
         self.save_diam_data_button = QPushButton("Begin Saving")
         save_diam_data_layout.addWidget(self.save_diam_data_button)
 
-        self.map_data = get_map_data(separate_test_trees=True)
+        self.map_data = get_map_data()
 
         self.plotter = ParticleMapPlotter(self.map_data)
 
@@ -489,12 +519,21 @@ class ParticleFilterBagFiles:
         self.start_time = None
 
         self.pf_active = False
-        #
+
+        self.converged_once = False
+
         self.start_pose_center = [16, 99.2]
         self.particle_density = 500
         self.start_width = 6
-        self.start_height = 20
+        self.start_height = 22
         self.start_rotation = -32
+
+        # # Whole map for when you're feeling arrogant
+        # self.start_pose_center = [20, 70]
+        # self.particle_density = 500
+        # self.start_width = 60
+        # self.start_height = 100
+        # self.start_rotation = -32
 
         # self.start_pose_center = [38.5, 106]
         # self.particle_density = 1000
@@ -530,6 +569,12 @@ class ParticleFilterBagFiles:
         self.qt_window.particle_density_input.setText(str(self.particle_density))
 
         self.map_data = get_map_data()
+        self.test_tree_nums = np.array([0 if num is None else num for num in self.map_data['test_tree_nums']])
+        self.test_tree_positions = self.map_data['positions'][self.test_tree_nums > 0]
+        self.test_tree_nums = self.test_tree_nums[self.test_tree_nums > 0]
+        self.treatment_status = np.zeros(len(self.test_tree_nums))
+        self.test_kdtree = KDTree(self.test_tree_positions)
+
 
         self.trunk_analyzer = TrunkAnalyzer()
 
@@ -601,13 +646,13 @@ class ParticleFilterBagFiles:
         self.use_saved_data_changed()
 
         # # Select the first item in the combo box
-        # self.qt_window.data_file_selector.setCurrentIndex(1)
-        # self.open_bag_file(self.qt_window.data_file_selector.currentText())
+        self.qt_window.data_file_selector.setCurrentIndex(67)
+        self.open_bag_file(self.qt_window.data_file_selector.currentText())
 
 
 
-        # self.qt_window.bag_time_line.setText("72")
-        # self.time_stamp_line_edited()
+        self.qt_window.bag_time_line.setText("27.2")
+        self.time_stamp_line_edited()
 
         # self.qt_window.mode_selector.setCurrentIndex(1)
         # self.mode_changed()
@@ -634,6 +679,8 @@ class ParticleFilterBagFiles:
         self.num_particles = int(self.particle_density * self.start_height * self.start_width)
         self.qt_window.num_particles_label.setText(str(self.num_particles))
 
+        self.converged_once = False
+
         self.pf_engine = PFEngine(self.map_data, start_pose_center=self.start_pose_center,
                                   start_pose_height=self.start_height, start_pose_width=self.start_width,
                                   num_particles=self.num_particles, rotation=np.deg2rad(self.start_rotation),)
@@ -653,12 +700,14 @@ class ParticleFilterBagFiles:
         self.pf_engine.dist_sd = 0.45
         self.pf_engine.width_sd = 0.03
 
-        self.pf_engine.bin_size = 0.5
-        self.pf_engine.bin_angle = np.deg2rad(4.0)
-        self.pf_engine.epsilon = 0.05
+        self.pf_engine.bin_size = 0.8
+        self.pf_engine.bin_angle = np.deg2rad(6.0)
+        self.pf_engine.epsilon = 0.035
 
 
         self.qt_window.plotter.update_particles(self.pf_engine.particles)
+        # self.qt_window.plotter.draw_plot(self.pf_engine.particles)
+
 
 
     def start_stop_button_clicked(self):
@@ -884,25 +933,48 @@ class ParticleFilterBagFiles:
     def run_pf(self):
         while self.pf_active:
             self.send_next_msg()
-            if self.pf_engine.histogram is not None and self.qt_window.stop_when_converged.isChecked():
-                converged = True
-                # This is just a dumb stuff i had to add because i did the img_data different for the loaded data,
-                # and i did idk, something wierd here, but it works now
-                if self.use_loaded_data:
-                    if self.img_data[self.cur_img_pos] is None or self.msg_order[self.cur_data_pos] != 1:
-                        converged = False
-                elif self.cur_data_pos >= len(self.msg_order):
-                    converged = False
-                elif not self.use_loaded_data and self.msg_order[self.cur_data_pos] != 1:
-                    converged = False
 
+            if self.cur_data_pos >= len(self.msg_order):
+                continue
+
+            converged = False
+            if self.qt_window.stop_when_converged.isChecked() or self.qt_window.signal_test_trees_checkbox.isChecked():
+                start_time_dist = time.time()
+                if self.use_loaded_data:
+                    if self.pf_engine.histogram is not None and self.img_data[self.cur_img_pos] \
+                    is not None and self.msg_order[self.cur_data_pos] == 1:
+                        converged = self.check_convergence(self.pf_engine.histogram)
+                else:
+                    if self.pf_engine.histogram is not None and self.msg_order[self.cur_data_pos] == 1:
+                        converged = self.check_convergence(self.pf_engine.histogram)
+
+            if self.qt_window.signal_test_trees_checkbox.isChecked():
+                if converged and not self.converged_once:
+                    self.converged_once = True
+                    # best_guess = self.pf_engine.particles.mean(axis=0)
+                    # self.qt_window.plotter.initialize_best_guess(best_guess)
+
+            elif self.qt_window.stop_when_converged.isChecked() and not self.qt_window.signal_test_trees_checkbox.isChecked():
                 if converged:
-                    start_time_dist = time.time()
-                    correct_convergence = self.check_convergence(self.pf_engine.histogram)
-                    print("Particles Converged: {}".format(correct_convergence))
-                    if correct_convergence:
-                        self.pf_active = False
+                    self.pf_active = False
+                else:
                     self.round_exclude_time += time.time() - start_time_dist
+
+
+            # if self.pf_engine.histogram is not None and (self.qt_window.stop_when_converged.isChecked() or
+            #                                              self.qt_window.signal_test_trees_checkbox.isChecked()):
+            #     self.converged = True
+            #     # This is just a dumb stuff i had to add because i did the img_data different for the loaded data,
+            #     # and i did idk, something wierd here, but it works now
+            #     if self.use_loaded_data:
+            #         if self.img_data[self.cur_img_pos] is None or self.msg_order[self.cur_data_pos] != 1:
+            #             self.converged = False
+            #     elif self.cur_data_pos >= len(self.msg_order):
+            #         self.converged = False
+            #     elif not self.use_loaded_data and self.msg_order[self.cur_data_pos] != 1:
+            #         self.converged = False
+
+
 
     def update_img_label(self):
         if self.use_loaded_data:
@@ -954,6 +1026,7 @@ class ParticleFilterBagFiles:
                 x_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.linear.x
                 theta_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.angular.z
                 time_stamp_odom = self.odom_msgs[self.cur_odom_pos].header.stamp.to_sec()
+
                 self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
 
                 if self.save_data:
@@ -1020,7 +1093,8 @@ class ParticleFilterBagFiles:
             else:
                 self.pf_engine.resample_particles()
 
-            print(self.pf_engine.particles.shape)
+            # Print number of particles
+            # print(self.pf_engine.particles.shape)
 
             if self.show_plot_updates:
                 start_time = time.time()
@@ -1042,6 +1116,11 @@ class ParticleFilterBagFiles:
                 self.saved_data[timestamp]['location_estimate']['theta'] = best_particle[2]
             elif self.save_data and not self.use_loaded_data:
                 self.saved_data[timestamp] = None
+
+            if self.converged_once:
+                best_guess = self.pf_engine.particles.mean(axis=0)
+                self.qt_window.plotter.update_best_guess(best_guess)
+                self.find_test_trees(best_guess)
 
     def get_trunk_data(self):
         time_start = time.time()
@@ -1460,8 +1539,8 @@ class ParticleFilterBagFiles:
             # Get the size of each feature
             feature_sizes = np.bincount(labeled_array.ravel())[1:]
             feature_size_max = int(((1/self.pf_engine.bin_size)**2) * ((0.25 * np.pi) / self.pf_engine.bin_angle))
-            print("Feature Sizes: ", feature_sizes)
-            print("Feature Size Max: ", feature_size_max)
+            # print("Feature Sizes: ", feature_sizes)
+            # print("Feature Size Max: ", feature_size_max)
             if feature_sizes[0] < feature_size_max:
                 return True
             else:
@@ -1505,6 +1584,65 @@ class ParticleFilterBagFiles:
             if msg_box.clickedButton() == buttons[i]:
                 print("Width: ", width_list[i], "Img X Position: ", img_x_positions[i])
                 return width_list[i], img_x_positions[i]
+
+    def find_test_trees(self, robot_position):
+
+        distances, idx_kd = self.test_kdtree.query(robot_position[:2], k=10)
+
+        test_tree_positions = self.test_tree_positions[idx_kd]
+
+        x_offsets = test_tree_positions[:,0] - robot_position[0]
+        y_offsets = test_tree_positions[:,1] - robot_position[1]
+        angles= np.arctan2(y_offsets, x_offsets) - robot_position[2]
+
+        # Correct angles to be between -pi and pi
+        angles[angles > np.pi] -= 2 * np.pi
+        angles[angles < -np.pi] += 2 * np.pi
+
+        # Get the position of the trees relative to the robot, x is forward, y is left
+        test_tree_positions_rel_robot = np.zeros(test_tree_positions.shape)
+        test_tree_positions_rel_robot[:,0] = distances * np.cos(angles)
+        test_tree_positions_rel_robot[:,1] = distances * np.sin(angles)
+
+        # Keep only trees that are to the right of the robot, and greater than -2 meters in the -y direction
+        idx = np.where((angles < 0) & (test_tree_positions_rel_robot[:,1] > -2))[0]
+        test_tree_positions_rel_robot = test_tree_positions_rel_robot[idx]
+        idx_kd = idx_kd[idx]
+
+        # for i in range(len(test_tree_nums)):
+        #     print("Tree Num: ", test_tree_nums[i], "Position: ", np.round(test_tree_positions_rel_robot[i], 2))
+
+        # Keep only trees with an x distance between 0.5 and 2 meters
+        idx_front = np.where((test_tree_positions_rel_robot[:,0] > 0.5) & (test_tree_positions_rel_robot[:,0] < 2))[0]
+        idx_kd_front = idx_kd[idx_front]
+
+        idx_behind = np.where(test_tree_positions_rel_robot[:, 0] < -2)[0]
+        idx_kd_behind = idx_kd[idx_behind]
+
+        idx_on_side = np.where((test_tree_positions_rel_robot[:,0] > -2) & (test_tree_positions_rel_robot[:,
+                                                                            0] < 2))[0]
+        idx_kd_on_side = idx_kd[idx_on_side]
+
+        if len(idx_front) > 1:
+            print("Multiple test trees !?!?!?")
+        elif len(idx_front) == 1:
+            if self.treatment_status[idx_kd_front] == 0:
+                print("Approaching tree: ", self.test_tree_nums[idx_kd_front])
+                self.treatment_status[idx_kd_front] = 1
+                self.qt_window.plotter.update_in_progress_tree(self.test_tree_positions[idx_kd_front][0])
+
+        for i in idx_on_side:
+            print("Tree in progress num: ", self.test_tree_nums[idx_kd_on_side[i]], "Position: ", np.round(
+                test_tree_positions_rel_robot[i,0], 2), " m")
+
+        for i in idx_kd_behind:
+            if self.treatment_status[i] == 1:
+                self.treatment_status[i] = 2
+                print("Completed tree: ", self.test_tree_nums[i])
+
+        complete_tree_positions = self.test_tree_positions[self.treatment_status == 2]
+        self.qt_window.plotter.update_complete(complete_tree_positions)
+
 
 
 

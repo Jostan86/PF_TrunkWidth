@@ -98,12 +98,6 @@ def get_map_data(args, include_sprinklers=False, separate_test_trees=False, move
     positions = np.array(positions)
     widths = np.array(widths)
 
-
-    # # Remove the sprinklers
-    # positions = positions[classes != 2]
-    # widths = widths[classes != 2]
-    # classes = classes[classes != 2]
-
     if move_origin:
         # Find the min x and y values, subtract 5 and set that as the origin
         x_min = np.min(positions[:, 0]) - origin_offset
