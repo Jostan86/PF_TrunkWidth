@@ -1,5 +1,7 @@
 <launch>
 
+<!--For using with bag files only, comment out if using with live camera, or set to False for live camera.
+    Also be sure to include the - -clock option if using a bag file-->
     <param name="/use_sim_time" value="true" />
 
     <node pkg="pf_trunk_width" type="live_tree_info_publisher.py" name="tree_data_node" >

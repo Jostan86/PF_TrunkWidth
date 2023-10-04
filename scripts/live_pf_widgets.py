@@ -38,32 +38,44 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout()
 
         # Movement noise (linear)
-        self.linear_noise_label = QLabel('Movement noise (linear):')
+        self.linear_noise_label = QLabel('Movement noise - linear (m/s):')
         self.linear_noise_edit = QLineEdit(str(current_settings['r_dist']))
+        tool_tip = ('The standard deviation of the noise added to the linear velocity of the robot')
+        self.linear_noise_edit.setToolTip(tool_tip)
+        self.linear_noise_label.setToolTip(tool_tip)
         linear_layout = QHBoxLayout()
         linear_layout.addWidget(self.linear_noise_label)
         linear_layout.addWidget(self.linear_noise_edit)
         layout.addLayout(linear_layout)
 
         # Movement noise (angular)
-        self.angular_noise_label = QLabel('Movement noise (angular):')
+        self.angular_noise_label = QLabel('Movement noise - angular (deg/s):')
         self.angular_noise_edit = QLineEdit(str(current_settings['r_angle']))
+        tool_tip = ('The standard deviation of the noise added to the angular velocity of the robot.')
+        self.angular_noise_edit.setToolTip(tool_tip)
+        self.angular_noise_label.setToolTip(tool_tip)
         angular_layout = QHBoxLayout()
         angular_layout.addWidget(self.angular_noise_label)
         angular_layout.addWidget(self.angular_noise_edit)
         layout.addLayout(angular_layout)
 
         # width sensor standard deviation
-        self.width_sensor_label = QLabel('Width sensor standard deviation:')
+        self.width_sensor_label = QLabel('Width sensor std dev (m):')
         self.width_sensor_edit = QLineEdit(str(current_settings['width_sd']))
+        tool_tip = "The expected standard deviation of the width sensor."
+        self.width_sensor_edit.setToolTip(tool_tip)
+        self.width_sensor_label.setToolTip(tool_tip)
         width_layout = QHBoxLayout()
         width_layout.addWidget(self.width_sensor_label)
         width_layout.addWidget(self.width_sensor_edit)
         layout.addLayout(width_layout)
 
         # Tree position sensor std dev
-        self.tree_position_label = QLabel('Tree position sensor std dev:')
+        self.tree_position_label = QLabel('Tree position sensor std dev (m):')
         self.tree_position_edit = QLineEdit(str(current_settings['dist_sd']))
+        tool_tip = "The expected standard deviation of the tree position sensor."
+        self.tree_position_edit.setToolTip(tool_tip)
+        self.tree_position_label.setToolTip(tool_tip)
         tree_position_layout = QHBoxLayout()
         tree_position_layout.addWidget(self.tree_position_label)
         tree_position_layout.addWidget(self.tree_position_edit)
@@ -72,6 +84,10 @@ class SettingsDialog(QDialog):
         # Epsilon
         self.epsilon_label = QLabel('Epsilon:')
         self.epsilon_edit = QLineEdit(str(current_settings['epsilon']))
+        tool_tip = ("The allowable error for the KLD sampling algorithm. A smaller value will result in more "
+                    "particles being generated.")
+        self.epsilon_edit.setToolTip(tool_tip)
+        self.epsilon_label.setToolTip(tool_tip)
         epsilon_layout = QHBoxLayout()
         epsilon_layout.addWidget(self.epsilon_label)
         epsilon_layout.addWidget(self.epsilon_edit)
@@ -80,22 +96,34 @@ class SettingsDialog(QDialog):
         # Delta
         self.delta_label = QLabel('Delta:')
         self.delta_edit = QLineEdit(str(current_settings['delta']))
+        tool_tip = ("Another term for the kld sampling. A smaller value will result in more particles being generated. "
+                    "I generally have not changed this value, and use epsilon instead.")
+        self.delta_edit.setToolTip(tool_tip)
+        self.delta_label.setToolTip(tool_tip)
         delta_layout = QHBoxLayout()
         delta_layout.addWidget(self.delta_label)
         delta_layout.addWidget(self.delta_edit)
         layout.addLayout(delta_layout)
 
         # Bin size
-        self.bin_size_label = QLabel('Bin size:')
+        self.bin_size_label = QLabel('Bin size (m):')
         self.bin_size_edit = QLineEdit(str(current_settings['bin_size']))
+        tool_tip = ("The size of the bins used to discretize the map. A smaller value will result in more particles "
+                    "being generated, but also more computation time, adjusting epsilon is usually a better "
+                    "option.")
+        self.bin_size_edit.setToolTip(tool_tip)
+        self.bin_size_label.setToolTip(tool_tip)
         bin_size_layout = QHBoxLayout()
         bin_size_layout.addWidget(self.bin_size_label)
         bin_size_layout.addWidget(self.bin_size_edit)
         layout.addLayout(bin_size_layout)
 
         # Bin angle
-        self.bin_angle_label = QLabel('Bin angle:')
+        self.bin_angle_label = QLabel('Bin angle (deg):')
         self.bin_angle_edit = QLineEdit(str(current_settings['bin_angle']))
+        tool_tip = ("The angular size of the bins used to discretize the map. A smaller value will result in more "
+                    "particles being generated, but also more computation time, adjusting epsilon is usually a "
+                    "better option.")
         bin_angle_layout = QHBoxLayout()
         bin_angle_layout.addWidget(self.bin_angle_label)
         bin_angle_layout.addWidget(self.bin_angle_edit)
@@ -165,12 +193,14 @@ class ParticleMapPlotter(QMainWindow):
     def draw_plot(self, particles=None):
         """Method to draw the map on the plot widget"""
 
-        # # Hard-coded row number positions
-        # row_num_xs = [4.9, 5.5, 6.05, 6.65, 7.4, 7.45, 7.9, 8.65, 9.2, 9.65, 10.25, 10.65, 11.05, 11.6, 12.1, 12.65,
-        #               13.2]
-        # row_num_ys = [4.9, 10.8, 16.5, 22.35, 28.1, 33.3, 39.05, 45.05, 51.05, 56.5, 62.6, 68.25, 73.9, 79.55, 85.6,
-        #               91.5, 97.3]
-        # row_nums = [i for i in range(len(row_num_xs))]
+        # Hard-coded row number positions
+        row_num_xs = [4.9, 5.5, 6.05, 6.65, 7.4, 7.45, 7.9, 8.65, 9.2, 9.65, 10.25, 10.65, 11.05, 11.6, 12.1, 12.65,
+                      13.2]
+        row_num_xs = [x - .75 for x in row_num_xs]
+        row_num_ys = [4.9, 10.8, 16.5, 22.35, 28.1, 33.3, 39.05, 45.05, 51.05, 56.5, 62.6, 68.25, 73.9, 79.55, 85.6,
+                      91.5, 97.3]
+        row_num_ys = [y - 1 for y in row_num_ys]
+        row_nums = [96+i for i in range(len(row_num_xs))]
 
         # Clear the plot widget
         self.plot_widget.clear()
@@ -207,6 +237,17 @@ class ParticleMapPlotter(QMainWindow):
                             self.test_tree_nums[i]), anchor = (-0.1, 0.5))
                     tree_num_text.setPos(x, y)
                     self.plot_widget.addItem(tree_num_text)
+
+            # Add row numbers
+            for i, (x, y) in enumerate(zip(row_num_xs, row_num_ys)):
+                row_num_text = pg.TextItem(
+                    html='<div style="text-align: center"><span style="color: #000000; font-size: 15pt;">{}</span></div>'.format(
+                        row_nums[i]), anchor=(0.5, 0.5))
+                row_num_text.setPos(x, y)
+                self.plot_widget.addItem(row_num_text)
+
+
+
 
 
         # Make plot items for things that will be updated

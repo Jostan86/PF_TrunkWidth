@@ -113,6 +113,7 @@ class MyMainWindow(QMainWindow):
         self.connect_ros_button.setToolTip("Connect to ROS subscribers")
         # Button to trigger popup to adjust pf settings
         self.adjust_pf_settings_button = QPushButton("PF Parameters")
+        self.adjust_pf_settings_button.setToolTip("Adjust the particle filter parameters")
         top_buttons_layout = QHBoxLayout()
         top_buttons_layout.addWidget(self.reset_button)
         top_buttons_layout.addWidget(self.connect_ros_button)
@@ -198,7 +199,7 @@ class MyMainWindow(QMainWindow):
         # Add a button to clear the console
         self.clear_console_button = QPushButton("Clear Console")
         # Add a button to remove the nums from the plot
-        self.plot_nums_toggle_button = QPushButton("Show Tree Numbers")
+        self.plot_nums_toggle_button = QPushButton("Show Tree and Row Numbers")
         bottom_buttons_layout = QHBoxLayout()
         bottom_buttons_layout.addWidget(self.clear_console_button)
         bottom_buttons_layout.addWidget(self.plot_nums_toggle_button)
@@ -455,6 +456,8 @@ class ParticleFilterBagFiles:
         if reconnect:
             self.connect_ros()
 
+        self.qt_window.console.appendPlainText("Particle filter reset")
+
     def connect_ros(self):
         # Connect to ROS subscribers
 
@@ -470,6 +473,8 @@ class ParticleFilterBagFiles:
 
         self.ros_connected = True
         self.prev_tree_data_time = None
+
+        self.qt_window.console.appendPlainText("Connected to ROS")
 
     def disconnect_ros(self):
         # Disconnect from ROS subscribers
@@ -679,6 +684,7 @@ class ParticleFilterBagFiles:
             if self.treatment_status[idx_kd_front] == 0:
                 self.treatment_status[idx_kd_front] = 1
                 self.qt_window.plotter.update_in_progress_tree(self.test_tree_positions[idx_kd_front][0])
+                self.qt_window.console.appendPlainText("Tree " + str(self.test_tree_nums[idx_kd_front][0]) + " started")
 
         # Publish data about the test tree to the side of the robot
         if len(idx_on_side) > 0:
@@ -694,6 +700,7 @@ class ParticleFilterBagFiles:
         # Update the status of trees that are beyond 2 meters behind the robot to completed
         for i in idx_kd_behind:
             if self.treatment_status[i] == 1:
+                self.qt_window.console.appendPlainText("Tree " + str(self.test_tree_nums[i]) + " completed")
                 self.treatment_status[i] = 2
 
         # Update the plot with the status of the trees
