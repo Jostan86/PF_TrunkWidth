@@ -50,7 +50,10 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   TreeInfo.msg
-  TreeSensor.msg
+  TreePosition.msg
+  TreeInfoMulti.msg
+  TestTreeLocation.msg
+  TestTreeLocationMulti.msg
 )
 
 ## Generate services in the 'srv' folder

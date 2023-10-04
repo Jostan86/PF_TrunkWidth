@@ -45,4 +45,4 @@ def extract_data_from_csvs(directory):
 # extract_data_from_csvs('/path/to/directory')
 
 if __name__=='__main__':
-    extract_data_from_csvs('../data/test_results/results_kld3/')
+    extract_data_from_csvs('../../data/test_results/results_kld3/')

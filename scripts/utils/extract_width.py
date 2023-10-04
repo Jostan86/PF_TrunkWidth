@@ -1,11 +1,17 @@
 from cv_bridge import CvBridge, CvBridgeError
 import rosbag
-from width_estimation import TrunkAnalyzer
 import time
 import pickle
 import os
 import cv2
 import numpy as np
+import sys
+
+sys.path.append('../')
+from env_vars import *
+from width_estimation import TrunkAnalyzer
+
+# This script is used to extract the widths from the bag files.
 
 def pair_messages(d_msg, img_msg, bridge=CvBridge()):
     if d_msg is not None and img_msg is not None and d_msg.header.stamp == img_msg.header.stamp:
@@ -73,43 +79,49 @@ if __name__ == "__main__":
 
     bag_file_name = "envy-trunks-01_4_converted_synced_pcl-mod.bag"
 
-    # for bag_file_name in bag_file_names[0:20]:
+    for bag_file_name in bag_file_names[0:20]:
 
-    paired_imgs, time_stamps_img = open_bag_file(bag_file_name)
+        paired_imgs, time_stamps_img = open_bag_file(bag_file_name)
 
-    trunk_analyzer = TrunkAnalyzer()
+        trunk_analyzer = TrunkAnalyzer()
 
 
-    widths_all = []
-    times = []
-    start = True
-    for paired_img in paired_imgs:
-        # paired_img = paired_imgs[0]
+        widths_all = []
+        times = []
+        start = True
+        i = 0
+        for paired_img in paired_imgs:
 
-        time_start = time.time()
-        tree_positions, widths, classes, img_seg, img_x_positions = trunk_analyzer.pf_helper(
-            paired_img[1],
-            paired_img[0],
-            show_seg=True)
-        time_end = time.time()
-        if start:
-            start = False
-        else:
-            times.append(time_end - time_start)
-        # cv2.imshow("img_seg", img_seg)
+            # paired_img = paired_imgs[0]
 
-        if widths is not None:
-            widths_all.append(widths.tolist())
-        else:
-            widths_all.append(None)
+            time_start = time.time()
+            tree_positions, widths, classes, img_seg, img_x_positions = trunk_analyzer.pf_helper(
+                paired_img[1],
+                paired_img[0],
+                show_seg=True)
+            time_end = time.time()
+            if start:
+                start = False
+            else:
+                times.append(time_end - time_start)
+            # if i == 23:
+            #     cv2.imshow("img_seg", img_seg)
+            #     cv2.waitKey(0)
 
-    times = np.array(times)
-    print("Average time: ", np.mean(times))
+            if widths is not None:
+                widths_all.append(widths.tolist())
+            else:
+                widths_all.append(None)
 
-    # run = bag_file_name[12:16]
-    # # Save widths to pickle file
-    # with open(data_save_dir + "new_" + run + ".pkl", "wb") as f:
-    #     pickle.dump(widths_all, f)
+            i += 1
+
+        times = np.array(times)
+        print("Average time: ", np.mean(times))
+
+        run = bag_file_name[12:16]
+        # Save widths to pickle file
+        with open(data_save_dir + "new2_" + run + ".pkl", "wb") as f:
+            pickle.dump(widths_all, f)
 
 
 

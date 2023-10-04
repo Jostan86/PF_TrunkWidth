@@ -21,7 +21,7 @@ import pandas as pd
 import csv
 from scipy.ndimage import label
 from scipy.spatial import KDTree
-
+import math
 
 # To run in pycharm add the following environment variable:
 # LD_PRELOAD: Set it to /usr/lib/x86_64-linux-gnu/libstdc++.so.6
@@ -30,6 +30,7 @@ def get_map_data(include_sprinklers=False, move_origin=True, origin_offset=5):
     # Path to the tree data dictionary
     tree_data_path = '/home/jostan/catkin_ws/src/pkgs_noetic/research_pkgs/orchard_data_analysis/data' \
                      '/2020_11_bag_data/afternoon2/tree_list_mod4.json'
+    # tree_data_path = '/media/jostan/portabits/sept6/tree_list_mod4.json'
 
     # Load the tree data dictionary
     with open(tree_data_path, 'rb') as f:
@@ -205,13 +206,22 @@ class ParticleMapPlotter(QMainWindow):
 
 
     def update_best_guess(self, best_guess_position):
-        self.best_guess_plot_item.setData([best_guess_position[0]], [best_guess_position[1]])
+        if best_guess_position is not None:
+            self.best_guess_plot_item.setData([best_guess_position[0]], [best_guess_position[1]])
+        else:
+            self.best_guess_plot_item.setData([], [])
 
     def update_in_progress_tree(self, in_progress_tree_position):
-        self.in_progress_tree_plot_item.setData([in_progress_tree_position[0]], [in_progress_tree_position[1]])
+        if in_progress_tree_position is not None:
+            self.in_progress_tree_plot_item.setData([in_progress_tree_position[0]], [in_progress_tree_position[1]])
+        else:
+            self.in_progress_tree_plot_item.setData([], [])
 
     def update_complete(self, complete_position):
-        if len(complete_position) == 1:
+
+        if complete_position is None:
+            self.complete_plot_item.setData([], [])
+        elif len(complete_position) == 1:
             complete_position = complete_position[0]
             self.complete_plot_item.setData([complete_position[0]], [complete_position[1]])
         else:
@@ -497,10 +507,7 @@ class ParticleFilterBagFiles:
         self.qt_window = MyMainWindow()
         self.qt_app = app
 
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
-        # self.bag_file_dir = "/media/jostan/MOAD/research_data/"
-        # self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
-        # self.bag_file_dir = "/media/jostan/portabits/sept6/"
+        self.initialize_startup_params1()
 
         self.img_base_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/yolo_segs/"
         self.saved_data_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/pf_data/"
@@ -522,45 +529,6 @@ class ParticleFilterBagFiles:
 
         self.converged_once = False
 
-        self.start_pose_center = [16, 99.2]
-        self.particle_density = 500
-        self.start_width = 6
-        self.start_height = 22
-        self.start_rotation = -32
-
-        # # Whole map for when you're feeling arrogant
-        # self.start_pose_center = [20, 70]
-        # self.particle_density = 500
-        # self.start_width = 60
-        # self.start_height = 100
-        # self.start_rotation = -32
-
-        # self.start_pose_center = [38.5, 106]
-        # self.particle_density = 1000
-        # self.start_width = 2
-        # self.start_height = 4
-        # self.start_rotation = -32
-
-        # Start for beginning of row106_107_sept.bag
-        # self.start_pose_center = [11, 66.3]
-        # self.particle_density = 500
-        # self.start_width = 2
-        # self.start_height = 10
-        # self.start_rotation = -32
-
-        # # Start for 72 sec in row106_107_sept.bag, at tree 795
-        # self.start_pose_center = [28, 95]
-        # self.particle_density = 250
-        # self.start_width = 20
-        # self.start_height = 20
-        # self.start_rotation = 0
-
-
-        self.x_offset = 0.8
-        self.y_offset = -0.55
-        # self.x_offset = 0
-        # self.y_offset = 0
-
         self.qt_window.start_x_input.setText(str(self.start_pose_center[0]))
         self.qt_window.start_y_input.setText(str(self.start_pose_center[1]))
         self.qt_window.width_input.setText(str(self.start_width))
@@ -578,8 +546,6 @@ class ParticleFilterBagFiles:
 
         self.trunk_analyzer = TrunkAnalyzer()
 
-        self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
-        # self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
 
         self.qt_window.reset_button.clicked.connect(self.reset_app)
         self.qt_window.start_stop_button.clicked.connect(self.start_stop_button_clicked)
@@ -645,26 +611,70 @@ class ParticleFilterBagFiles:
         self.mode_changed()
         self.use_saved_data_changed()
 
-        # # Select the first item in the combo box
-        self.qt_window.data_file_selector.setCurrentIndex(67)
-        self.open_bag_file(self.qt_window.data_file_selector.currentText())
+        # Select the first item in the combo box
+        if self.starting_bag_index is not None:
+            self.qt_window.data_file_selector.setCurrentIndex(self.starting_bag_index)
+            self.open_bag_file(self.qt_window.data_file_selector.currentText())
+        if self.starting_time is not None:
+            self.qt_window.bag_time_line.setText(str(self.starting_time))
+            self.time_stamp_line_edited()
 
-
-
-        self.qt_window.bag_time_line.setText("27.2")
-        self.time_stamp_line_edited()
 
         # self.qt_window.mode_selector.setCurrentIndex(1)
         # self.mode_changed()
 
-#760
+
+    def initialize_startup_params1(self):
+
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
+        # self.bag_file_dir = "/media/jostan/portabits/sept6/"
+        self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
+
+        # Start for 72 sec in row106_107_sept.bag, at tree 795
+        self.start_pose_center = [28, 95]
+        self.particle_density = 250
+        self.start_width = 20
+        self.start_height = 20
+        self.start_rotation = 0
+
+        # Start for beginning of row106_107_sept.bag
+        # self.start_pose_center = [11, 66.3]
+        # self.particle_density = 500
+        # self.start_width = 2
+        # self.start_height = 10
+        # self.start_rotation = -32
+
+        self.x_offset = 0.8
+        self.y_offset = -0.55
+
+        self.starting_time = 72
+        self.starting_bag_index = 1
+
+    def initialize_startup_params2(self):
+
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/2023_orchard_data/uncompressed/synced/pcl_mod/"
+        self.topics = ["/registered/rgb/image", "/registered/depth/image", "/odometry/filtered"]
+
+        self.start_pose_center = [16, 99.2]
+        self.particle_density = 500
+        self.start_width = 6
+        self.start_height = 22
+        self.start_rotation = -32
+        self.starting_time = 27.2
+        self.starting_bag_index = 67
+
+        # Whole map for when you're feeling arrogant
+        # self.start_pose_center = [20, 70]
+        # self.particle_density = 500
+        # self.start_width = 60
+        # self.start_height = 100
+        # self.start_rotation = -32
 
 
-
-
-        # img_dir = 'img'
-        # self.img_files = os.listdir(img_dir)
-        # self.img_files.sort()
+        # self.x_offset = 0
+        # self.y_offset = 0
+        self.x_offset = 0.8
+        self.y_offset = -0.55
 
 
     def reset_app(self):
@@ -704,9 +714,17 @@ class ParticleFilterBagFiles:
         self.pf_engine.bin_angle = np.deg2rad(6.0)
         self.pf_engine.epsilon = 0.035
 
+        self.treatment_status = np.zeros(len(self.test_tree_nums))
+
+        self.qt_window.plotter.update_best_guess(None)
+        self.qt_window.plotter.update_in_progress_tree(None)
+        self.qt_window.plotter.update_complete(None)
 
         self.qt_window.plotter.update_particles(self.pf_engine.particles)
         # self.qt_window.plotter.draw_plot(self.pf_engine.particles)
+
+        self.first_odom = True
+        self.odom_counter = 0
 
 
 
@@ -982,8 +1000,7 @@ class ParticleFilterBagFiles:
         else:
             self.qt_window.img_number_label.setText("Image: " + str(self.cur_img_pos + 1) + "/" + str(len(self.paired_imgs)))
 
-    def send_next_msg(self):
-
+    def check_end_of_data(self):
         if self.cur_data_pos >= len(self.msg_order) and self.use_loaded_data:
             if len(self.img_data) == 0:
                 # print message to console
@@ -1012,16 +1029,21 @@ class ParticleFilterBagFiles:
                 return
             else:
                 self.open_bag_file(self.data_file_names[cur_bag_file_pos + 1])
+    def send_next_msg(self):
+        self.check_end_of_data()
 
         # Write the current time stamp to the line edit
         self.qt_window.bag_time_line.setText(str(self.time_stamps[self.cur_data_pos]))
+
         if self.msg_order[self.cur_data_pos] == 0:
+            # while self.msg_order
             if self.use_loaded_data:
                 x_odom = self.odom_data[self.cur_odom_pos]['x_odom']
                 theta_odom = self.odom_data[self.cur_odom_pos]['theta_odom']
                 time_stamp_odom = self.odom_data[self.cur_odom_pos]['time_stamp']
                 # self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
                 self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
+
             else:
                 x_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.linear.x
                 theta_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.angular.z
@@ -1039,6 +1061,21 @@ class ParticleFilterBagFiles:
 
             self.cur_odom_pos += 1
             self.cur_data_pos += 1
+
+        # if self.msg_order[self.cur_data_pos] == 0:
+        #     if self.first_odom:
+        #         self.first_odom = False
+        #         self.x_odom = 0
+        #         self.theta_odom = 0
+        #         self.odom_counter = 0
+        #     self.x_odom += self.odom_msgs[self.cur_odom_pos].twist.twist.linear.x
+        #     self.theta_odom += self.odom_msgs[self.cur_odom_pos].twist.twist.angular.z
+        #     self.time_stamp_odom = self.odom_msgs[self.cur_odom_pos].header.stamp.to_sec()
+        #     self.odom_counter += 1
+        #
+        #     self.cur_data_pos += 1
+        #     self.cur_odom_pos += 1
+
 
         elif self.msg_order[self.cur_data_pos] == 1:
             if self.use_loaded_data:
@@ -1060,6 +1097,23 @@ class ParticleFilterBagFiles:
                     img_x_positions = None
 
             else:
+
+                # if self.first_odom:
+                #     self.cur_img_pos += 1
+                #     self.cur_data_pos += 1
+                #     return
+                #
+                # if self.odom_counter > 0:
+                #     x_odom = self.x_odom / self.odom_counter
+                #     theta_odom = self.theta_odom / self.odom_counter
+                #     print("x_odom: ", x_odom)
+                #     print("theta_odom: ", theta_odom)
+                #     self.pf_engine.save_odom(x_odom, theta_odom, self.time_stamp_odom)
+                #
+                #     self.x_odom = 0
+                #     self.theta_odom = 0
+                #     self.odom_counter = 0
+
                 tree_positions, widths, classes, img_x_positions = self.get_trunk_data()
 
                 if self.save_data:

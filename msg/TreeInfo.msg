@@ -1,3 +1,4 @@
 float64 width
-float64 distance
-float64 angle
+pf_trunk_width/TreePosition position
+float64 confidence
+int32 classification

@@ -1,0 +1,19 @@
+<launch>
+
+    <param name="/use_sim_time" value="true" />
+
+    <node pkg="pf_trunk_width" type="live_tree_info_publisher.py" name="tree_data_node" >
+<!--    Max size of the queues, mostly to prevent the image queues from getting to large-->
+        <param name="queue_max_size" value="100" />
+<!--    Number of frames to skip between each frame that is processed, to reduce the load on the system. So if set to one it will process every other frame-->
+        <param name="skip_frames" value="0" />
+<!--    Offset of the camera from the center of the robot-->
+        <param name="x_offset" value="0.8" />
+        <param name="y_offset" value="-0.55" />
+    </node>
+
+
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find pf_trunk_width)/config/pf_basic.rviz"/>
+
+
+</launch>

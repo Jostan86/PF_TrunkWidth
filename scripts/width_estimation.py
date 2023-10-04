@@ -16,8 +16,8 @@ class TrunkAnalyzer:
     def __init__(self):
 
         # Initialize predictor using the configuration object
-        # weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500_v5.pt"
-        weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500_v7.pt"
+        # weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_x_500_v7.pt"
+        weight_path = "/home/jostan/OneDrive/Docs/Grad_school/Research/yolo_model/best_s_500_v7.pt"
         self.yolo_model = YOLO(weight_path)
 
         self.results = None
@@ -70,13 +70,10 @@ class TrunkAnalyzer:
             saves the mask and score arrays to the class variables, as well as the number of instances, and the indices
             of the instances that were kept
         """
-        # Do the prediction and convert to cpu
-        # time_start = time.time()
-        results = self.yolo_model.predict(image, imgsz=(image.shape[0], image.shape[1]), iou=0.01, conf=0.5, verbose=False)
-        # results = self.yolo_model.predict(image, iou=0.01, conf=0.5)
-
-        # time_end = time.time()
-        # print("Prediction time: ", time_end - time_start)
+        # Do the prediction and convert to cpu. Agnostic NMS is set to false, which is the default, because I do nms
+        # later also, and i need to use a different iou for the 2. Ideally i could send 2 different ious here, but alas.
+        results = self.yolo_model.predict(image, imgsz=(image.shape[0], image.shape[1]), iou=0.01, conf=0.7,
+                                          verbose=False, agnostic_nms=False)
 
         self.results = results[0].cpu()
 
@@ -124,6 +121,7 @@ class TrunkAnalyzer:
             self.tree_locations = self.tree_locations[keep_indices]
 
     def get_width_pix(self, mask):
+        """A more accurate version, but it's very slow, because of morphology.medial_axis"""
 
         # Get the medial axis and distance transform of the mask.
         # The distance transform assigns to each pixel the distance to the closest background pixel.
@@ -186,7 +184,58 @@ class TrunkAnalyzer:
         diameter_pixels = return_distance_axis[real_idx] * 2
 
         return diameter_pixels
+    def get_width_pix2(self, mask):
+        """The fastest version, but it's not as accurate... maybe? Haven't really tested it"""
 
+        # Step 1: Calculate approximated medial axis
+        leftmost = mask.argmax(axis=1)
+        rightmost = mask.shape[1] - 1 - np.flip(mask, axis=1).argmax(axis=1)
+
+        # Removing rows where no mask is present, which is row where leftmost is not zero and right most is not the
+        # last column
+        valid_rows = np.logical_and(leftmost != 0, rightmost != mask.shape[1] - 1)
+        y_coords = np.arange(mask.shape[0])[valid_rows]
+        leftmost = leftmost[valid_rows]
+        rightmost = rightmost[valid_rows]
+
+        midpoints = ((leftmost + rightmost) / 2).astype(int)
+        x_coords = midpoints
+
+        # Step 2: Calculate local angles and corrected widths
+        segment_length = 15
+        widths = rightmost - leftmost
+        corrected_widths = np.zeros_like(widths, dtype=float)
+        for i in range(0, len(y_coords) - segment_length, segment_length):
+            dy = y_coords[i + segment_length] - y_coords[i]
+            dx = x_coords[i + segment_length] - x_coords[i]
+            angle = np.arctan2(dy, dx)
+
+            # Step 3: Correct the widths in this segment
+            corrected_widths[i:i + segment_length] = widths[i:i + segment_length] * np.abs(np.sin(angle))
+
+
+        cut_off_dist = int(corrected_widths.shape[0] * 0.3)
+        corrected_widths_trimmed = np.cumsum(corrected_widths)[:-cut_off_dist]
+        corrected_widths_trimmed = corrected_widths_trimmed[cut_off_dist:]
+
+        # Calculate the difference between elements separated by a window of 20 in return_distance_axis_trimmed (effectively a discrete derivative)
+        return_distance_axis_derv = corrected_widths_trimmed[20:] - corrected_widths_trimmed[:-20]
+
+        # Determine how many of the smallest elements in return_distance4 to consider (40% of the length of the array)
+        k = int(return_distance_axis_derv.shape[0] * 0.4)
+
+        # Find the indices of the k smallest elements in return_distance_axis_derv
+        idx1 = np.argpartition(return_distance_axis_derv, k)[:k]
+
+        # Calculate the real indices in the original return_distance_axis array
+        # by accounting for the shift introduced when computing return_distance4 (10 positions), and the offset
+        # introduced when removing the top and bottom 20% of values
+        real_idx = idx1 + 10 + cut_off_dist
+
+        # Retrieve the distances at the calculated indices from return_distance1 and double them to estimate the trunk diameter in pixels at those points
+        diameter_pixels = corrected_widths[real_idx]
+
+        return diameter_pixels
 
     def calculate_depth(self, top_ignore=0.4, bottom_ignore=0.20, min_num_points=300,
                         depth_filter_percentile_upper=65, depth_filter_percentile_lower=35):
@@ -285,7 +334,12 @@ class TrunkAnalyzer:
         for i, (mask, depth) in enumerate(zip(self.masks, self.depth_median)):
 
             # Get the diameter of the tree in pixels
-            diameter_pixels = self.get_width_pix(mask)
+            # time_start = time.time()
+            diameter_pixels = self.get_width_pix2(mask)
+            # print("Time to calculate width1: ", time.time() - time_start)
+            # time_start = time.time()
+            # diameter_pixels2 = self.get_width_pix3(mask)
+            # print("Time to calculate width2: ", time.time() - time_start)
 
             # get image width in pixels
             image_width_pixels = mask.shape[1]
@@ -542,7 +596,10 @@ class TrunkAnalyzer:
         self.width = image.shape[1]
         self.num_pixels = self.height * self.width
 
+        start_time = time.time()
+
         self.get_mask(image)
+        print("Mask time: ", time.time() - start_time)
 
     # def process_image(self):
     #
@@ -583,23 +640,19 @@ class TrunkAnalyzer:
         if self.num_instances > 0:
              self.mask_filter_multi_segs()
         if self.num_instances > 1:
-            self.mask_filter_nms(overlap_threshold=0.5)
+            self.mask_filter_nms(overlap_threshold=0.3)
         if self.num_instances > 0:
             self.calculate_depth(top_ignore=0.50, bottom_ignore=0.20, min_num_points=500,
                                  depth_filter_percentile_upper=65, depth_filter_percentile_lower=35)
         if self.num_instances > 0:
             self.mask_filter_depth(depth_threshold=2.0)
-
         if self.num_instances > 0:
             self.mask_filter_edge(edge_threshold=0.05)
-        # if self.num_instances > 1:
-        #     self.mask_filter_stacked()
         if self.num_instances > 0:
             self.mask_filter_position(bottom_position_threshold=0.5, top_position_threshold=0.65, score_threshold=0.9)
-
-            # self.calculate_width()
+            time_start = time.time()
             self.calculate_width()
-
+            # print("Width: ", time.time() - time_start)
 
 
     # def show_filtered_masks(self, image, depth_image):
@@ -746,6 +799,7 @@ class TrunkAnalyzer:
         # return self.tree_widths[0], image_masked, self.masks[0]
 
     def pf_helper(self, image, depth_image, show_seg=False, save_path=None):
+        start_time = time.time()
         self.new_image_reset(image, depth_image)
         self.process_image_husky()
 
@@ -754,6 +808,8 @@ class TrunkAnalyzer:
             #     # Show the image
             #     cv2.imshow('Segmented image', image)
             #     cv2.waitKey(1)
+            total_time = time.time() - start_time
+            print("Total Time (no mask): ", total_time)
             return None, None, None, image, None
 
         img_x_position = np.zeros(self.num_instances, dtype=np.int32)
@@ -764,10 +820,15 @@ class TrunkAnalyzer:
 
         if show_seg:
             img = self.show_current_output("Segmented image", return_img=True, save_path=save_path)
+            total_time = time.time() - start_time
+            print("Total Time: ", total_time)
             return self.tree_locations, self.tree_widths, self.classes, img, img_x_position
             # cv2.waitKey(1)
+
         else:
             return self.tree_locations, self.tree_widths, self.classes, img_x_position
+
+
 
 
 if __name__ == "__main__":

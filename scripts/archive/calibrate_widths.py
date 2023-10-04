@@ -45,7 +45,7 @@ for tree in map_data:
 
 # Get the ground truth data for the test trees
 gt_tree_data = {}
-gt_data_path = '../data/gt_diameter_data.csv'
+gt_data_path = '../../data/gt_diameter_data.csv'
 # make the csv a pandas dataframe
 gt_df = pd.read_csv(gt_data_path)
 # cycle through the Tree Number and Diameter columns
@@ -57,7 +57,7 @@ for index, row in gt_df.iterrows():
 
 # Get the tree data collected for the sept and feb data
 # Get list of filenames with diameter data
-dir_path = '../data/diam_data/'
+dir_path = '../../data/diam_data/'
 filenames = os.listdir(dir_path)
 sept_tree_data = {}
 feb_tree_data = {}

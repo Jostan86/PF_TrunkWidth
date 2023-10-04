@@ -3,7 +3,6 @@
 from cv_bridge import CvBridge, CvBridgeError
 import os
 import rosbag
-from width_estimation import TrunkAnalyzer
 import numpy as np
 import cv2
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, \
@@ -13,6 +12,11 @@ from PyQt5.QtCore import Qt
 import sys
 import bisect
 import time
+
+sys.path.append('../')
+from env_vars import *
+import os
+from width_estimation import TrunkAnalyzer
 
 # To run in pycharm open pycharm from the terminal
 

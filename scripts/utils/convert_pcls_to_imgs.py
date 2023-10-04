@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# This script takes out all the rgb and depth images from the bag file and
+# This script converts the point cloud data in the bag files to RGB and depth images
 
 import rosbag
 import cv2
@@ -9,9 +9,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, PointCloud2
 from std_msgs.msg import Header
 from sensor_msgs import point_cloud2
-# import ros_numpy
 import ros_numpy
-# import pcl
 import os
 
 # Bag file path
