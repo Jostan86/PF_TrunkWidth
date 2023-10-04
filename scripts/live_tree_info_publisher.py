@@ -2,7 +2,7 @@
 import sys
 from sensor_msgs.msg import Image
 from pf_trunk_width.msg import TreeInfo, TreeInfoMulti, TreePosition
-from width_estimation_live import TrunkAnalyzer, TrunkSegmenter
+from live_width_estimation import TrunkAnalyzer, TrunkSegmenter
 import numpy as np
 import multiprocessing as mp
 import os
