@@ -6,7 +6,7 @@ import rosbag
 import numpy as np
 import cv2
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, \
-    QPushButton, QComboBox, QPlainTextEdit
+    QPushButton, QComboBox, QPlainTextEdit, QCheckBox
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 import sys
@@ -44,6 +44,9 @@ class MyMainWindow(QMainWindow):
 
         # Left-side widgets
         self.reset_button = QPushButton("Reset")
+
+        self.show_segmentations_checkbox = QCheckBox("Show Segmentations")
+        self.show_segmentations_checkbox.setChecked(True)
 
 
         self.picture_label = QLabel(self)
@@ -86,18 +89,27 @@ class MyMainWindow(QMainWindow):
         # Add a button to clear the console
         self.clear_console_button = QPushButton("Clear Console")
 
+        # Add a button to save the image
+        self.save_img_button = QPushButton("Save Image")
+
+        # Put clear console and save image button in a layout
+        clear_console_layout = QHBoxLayout()
+        clear_console_layout.addWidget(self.clear_console_button)
+        clear_console_layout.addWidget(self.save_img_button)
+
 
 
         # Set up layouts
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.reset_button)
+        main_layout.addWidget(self.show_segmentations_checkbox)
         main_layout.addWidget(self.picture_label)
         main_layout.addWidget(self.img_number_label)
         main_layout.addLayout(img_browsing_buttons_layout)
         main_layout.addLayout(data_file_selector_layout)
         main_layout.addLayout(bag_time_line_layout)
         main_layout.addWidget(self.console)
-        main_layout.addWidget(self.clear_console_button)
+        main_layout.addLayout(clear_console_layout)
 
 
         central_widget.setLayout(main_layout)
@@ -145,7 +157,9 @@ class ParticleFilterBagFiles:
         self.qt_window = MyMainWindow()
         self.qt_app = app
 
-        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
+        # self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
+        self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/oct4/"
+
         # self.bag_file_dir = "/media/jostan/MOAD/research_data/hort_farm_data/"
         # self.img_base_dir = "/media/jostan/MOAD/research_data/roza_imgs/"
 
@@ -173,6 +187,7 @@ class ParticleFilterBagFiles:
         self.qt_window.prev_img_button.clicked.connect(self.prev_button_clicked)
         self.qt_window.next_img_button.clicked.connect(self.next_button_clicked)
         self.qt_window.play_fwd_button.clicked.connect(self.play_button_clicked)
+        self.qt_window.save_img_button.clicked.connect(self.save_img_button_clicked)
 
         self.qt_window.bag_time_line.returnPressed.connect(self.time_stamp_line_edited)
 
@@ -183,7 +198,10 @@ class ParticleFilterBagFiles:
         self.reset_app()
 
 
-
+    def save_img_button_clicked(self):
+        save_dir = "/home/jostan/Documents/trunk_images_3/"
+        save_name = save_dir + str(int(1000*self.time_stamps[self.cur_img_pos])) + ".png"
+        cv2.imwrite(save_name, self.paired_imgs[self.cur_img_pos][1])
 
     def reset_app(self):
         ...
@@ -193,7 +211,7 @@ class ParticleFilterBagFiles:
 
     def get_trunk_data(self):
         # try:
-        tree_positions, widths, classes, img_seg = self.trunk_analyzer.pf_helper(
+        tree_positions, widths, classes, img_seg, img_x_pos = self.trunk_analyzer.pf_helper(
             self.paired_imgs[self.cur_img_pos][1],
             self.paired_imgs[self.cur_img_pos][0],
             show_seg=True)
@@ -274,7 +292,10 @@ class ParticleFilterBagFiles:
         self.update_img_label()
 
     def get_segmentation(self):
-        _, _, _, = self.get_trunk_data()
+        if self.qt_window.show_segmentations_checkbox.isChecked():
+            _, _, _, = self.get_trunk_data()
+        else:
+            self.qt_window.load_image(self.paired_imgs[self.cur_img_pos][1])
 
 
     def time_stamp_line_edited(self):

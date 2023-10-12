@@ -14,7 +14,6 @@
         <param name="y_offset" value="-0.55" />
     </node>
 
-
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find pf_trunk_width)/config/pf_basic.rviz"/>
 
 

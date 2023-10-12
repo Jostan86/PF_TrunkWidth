@@ -30,7 +30,7 @@ def get_map_data(include_sprinklers=False, move_origin=True, origin_offset=5):
     # Path to the tree data dictionary
     tree_data_path = '/home/jostan/catkin_ws/src/pkgs_noetic/research_pkgs/orchard_data_analysis/data' \
                      '/2020_11_bag_data/afternoon2/tree_list_mod4.json'
-    tree_data_path = '/media/jostan/portabits/sept6/tree_list_mod4.json'
+    # tree_data_path = '/media/jostan/portabits/sept6/tree_list_mod4.json'
 
     # Load the tree data dictionary
     with open(tree_data_path, 'rb') as f:
@@ -627,7 +627,7 @@ class ParticleFilterBagFiles:
     def initialize_startup_params1(self):
 
         self.bag_file_dir = "/media/jostan/MOAD/research_data/achyut_data/sept6/"
-        self.bag_file_dir = "/media/jostan/portabits/sept6/"
+        # self.bag_file_dir = "/media/jostan/portabits/sept6/"
         self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
 
         # Start for 72 sec in row106_107_sept.bag, at tree 795
@@ -1000,8 +1000,7 @@ class ParticleFilterBagFiles:
         else:
             self.qt_window.img_number_label.setText("Image: " + str(self.cur_img_pos + 1) + "/" + str(len(self.paired_imgs)))
 
-    def send_next_msg(self):
-
+    def check_end_of_data(self):
         if self.cur_data_pos >= len(self.msg_order) and self.use_loaded_data:
             if len(self.img_data) == 0:
                 # print message to console
@@ -1030,17 +1029,21 @@ class ParticleFilterBagFiles:
                 return
             else:
                 self.open_bag_file(self.data_file_names[cur_bag_file_pos + 1])
+    def send_next_msg(self):
+        self.check_end_of_data()
 
         # Write the current time stamp to the line edit
         self.qt_window.bag_time_line.setText(str(self.time_stamps[self.cur_data_pos]))
 
         if self.msg_order[self.cur_data_pos] == 0:
+            # while self.msg_order
             if self.use_loaded_data:
                 x_odom = self.odom_data[self.cur_odom_pos]['x_odom']
                 theta_odom = self.odom_data[self.cur_odom_pos]['theta_odom']
                 time_stamp_odom = self.odom_data[self.cur_odom_pos]['time_stamp']
                 # self.pf_engine.save_odom_loaded(x_odom, theta_odom, time_stamp_odom)
                 self.pf_engine.save_odom(x_odom, theta_odom, time_stamp_odom)
+
             else:
                 x_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.linear.x
                 theta_odom = self.odom_msgs[self.cur_odom_pos].twist.twist.angular.z

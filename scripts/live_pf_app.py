@@ -287,13 +287,20 @@ class ParticleFilterBagFiles:
         self.pf_settings = {
             'r_dist': 0.7,
             'r_angle': 25,
-            'width_sd': 0.03,
+            # 'width_sd': 0.03,
+            'width_sd': 0.04,
             'dist_sd': 0.45,
-            'epsilon': 0.035,
+            # 'epsilon': 0.035,
+            'epsilon': 0.025,
             'delta': 0.05,
             'bin_size': 0.8,
             'bin_angle': 6
         }
+
+        # Set the time error of the odometry messages, their time stamps are not accurate, the warthog time appears to
+        # be about 1.7 seconds ahead of the laptop time
+        # self.odom_time_diff = 1.7
+        self.odom_time_diff = 0.46
 
         # Initialize some variables
         self.start_time = None
@@ -342,19 +349,24 @@ class ParticleFilterBagFiles:
         # Topics to subscribe to for september data from Warthog
         self.topics = ["/camera/color/image_raw", "/camera/aligned_depth_to_color/image_raw", "/odometry/filtered"]
 
-        # Start for 72 sec into row106_107_sept.bag, at tree 795
-        self.start_pose_center = [28, 95]
-        self.particle_density = 400
-        self.start_width = 20
-        self.start_height = 20
-        self.start_rotation = 0
+        # # Start for 72 sec into row106_107_sept.bag, at tree 795
+        # self.start_pose_center = [28, 95]
+        # self.particle_density = 400
+        # self.start_width = 20
+        # self.start_height = 20
+        # self.start_rotation = 0
 
-        # # Start for 72 sec in row106_107_sept.bag, at tree 795
+        # Start for 72 sec in row106_107_sept.bag, at tree 795
         # self.start_pose_center = [30.2, 97.5]
         # self.particle_density = 400
-        # self.start_width = 4
+        # self.start_width = 6
         # self.start_height = 10
         # self.start_rotation = -32
+        self.start_pose_center = [12.1, 53]
+        self.particle_density = 400
+        self.start_width = 4
+        self.start_height = 20
+        self.start_rotation = -32
 
         # Start for beginning of row106_107_sept.bag
         # self.start_pose_center = [11, 66.3]
@@ -444,7 +456,7 @@ class ParticleFilterBagFiles:
         try:
             # Wait for the particle filter to setup and return the particles. In a try except block to avoid getting
             # stuck, but nothing is really implemented to handle this
-            self.particles, self.best_guess, _, _ = self.pf_return_queue.get(timeout=2)
+            self.particles, self.best_guess, _, _, _ = self.pf_return_queue.get(timeout=2)
         except mp.queues.Empty:
             print("Particle filter setup timed out")
             return
@@ -492,9 +504,9 @@ class ParticleFilterBagFiles:
         self.ros_connected = False
 
     def odom_callback(self, odom_msg):
-        # Save the odom message and time it was received
+        # Save the odom message and time is was taken, subtracting the clock offset
         self.odom_msgs.append(odom_msg)
-        self.odom_times.append(rospy.get_rostime().to_sec())
+        self.odom_times.append(odom_msg.header.stamp.to_sec() - self.odom_time_diff)
 
     def trunk_data_callback(self, trunk_data_msg):
         # Save the tree data
@@ -506,22 +518,23 @@ class ParticleFilterBagFiles:
 
         # Class is set to 5 if no trees are detected, kind of a hack way of doing it, but it works
         if trunk_data_msg.trees[0].classification == 5:
-            tree_data = {'widths': None, 'positions': None, 'classes': None}
+            tree_data = {'widths': None, 'positions': None, 'classes': None, 'time_stamp': None}
         else:
             for tree_info in trunk_data_msg.trees:
                 widths.append(tree_info.width)
                 position = [tree_info.position.x, tree_info.position.y]
                 positions.append(position)
                 classes.append(tree_info.classification)
-            tree_data = {'widths': widths, 'positions': positions, 'classes': classes}
+            tree_data = {'widths': widths, 'positions': positions, 'classes': classes, 'time_stamp':
+                trunk_data_msg.header.stamp}
 
         # Set the time if this is the first tree data message
         if self.prev_tree_data_time is None:
-            self.prev_tree_data_time = rospy.get_rostime().to_sec()
+            self.prev_tree_data_time = trunk_data_msg.header.stamp.to_sec()
             return
         else:
-            # Update the particle filter with the tree data, and the time the tree data was received
-            self.update_pf(tree_data, rospy.get_rostime().to_sec())
+            # Update the particle filter with the tree data, and the time the image was taken
+            self.update_pf(tree_data, trunk_data_msg.header.stamp.to_sec())
 
     def image_callback(self, image_msg):
         # print image to gui
@@ -578,7 +591,7 @@ class ParticleFilterBagFiles:
 
         # Get the most recent queue item and get rid of the rest
         while not self.pf_return_queue.empty():
-            self.particles, self.best_guess, self.converged, self.num_particles_cur = self.pf_return_queue.get(
+            self.particles, self.best_guess, self.converged, self.num_particles_cur, time_stamp = self.pf_return_queue.get(
                 block=False)
 
         # Update the plot with the particles if the disable plotting checkbox is not checked, or if the particle filter
@@ -594,7 +607,8 @@ class ParticleFilterBagFiles:
         # Update the best guess on the plot if the particle filter has converged at least once
         if self.converged_once:
             self.qt_window.plotter.update_best_guess(self.best_guess)
-            self.find_test_trees(self.best_guess)
+            self.find_test_trees(self.best_guess, time_stamp)
+            self.check_end_of_row(self.best_guess, time_stamp)
         else:
             # Update whether the particle filter has converged once
             if self.converged and not self.converged_once:
@@ -638,7 +652,7 @@ class ParticleFilterBagFiles:
             self.qt_window.plot_nums_toggle_button.setText("Remove Nums")
 
 
-    def find_test_trees(self, robot_position):
+    def find_test_trees(self, robot_position, time_stamp):
         # Method for finding the test trees and updating their status
 
         # Get the 10 closest trees to the robot
@@ -694,7 +708,8 @@ class ParticleFilterBagFiles:
                 test_tree_location_msg.tree_id = self.test_tree_nums[idx_kd_on_side[i]]
                 test_tree_location_msg.position = test_tree_positions_rel_robot[i,0]
                 test_tree_locations_msg.trees.append(test_tree_location_msg)
-            test_tree_locations_msg.header.stamp = rospy.get_rostime()
+            # Create ros timestamp from float time
+            test_tree_locations_msg.header.stamp = time_stamp
             self.test_tree_pub.publish(test_tree_locations_msg)
 
         # Update the status of trees that are beyond 2 meters behind the robot to completed
@@ -750,8 +765,36 @@ class ParticleFilterBagFiles:
                     self.qt_window.console.appendPlainText(key + ": " + str(value))
                 self.reset_app()
 
+    def check_end_of_row(self, robot_position, time_stamp):
+        row_end_line = np.array([[30.7, 125.74], [55.5, 86.0]])
+        row_start_line = np.array([[12.95, 97.0], [4.97, 4.38]])
 
+        def slope_from_points(p1, p2):
+            return (p2[1] - p1[1]) / (p2[0] - p1[0])
 
+        def intersection_of_robot_path_with_line(robot_pos, p1, m_line):
+            # Find the x intersection of the robot's path with the given line
+            tan_theta = np.tan(robot_pos[2])
+            x_intersection = (p1[1] - robot_pos[1] + tan_theta * robot_pos[0] - m_line * p1[0]) / (tan_theta - m_line)
+            y_intersection = robot_pos[1] + tan_theta * (x_intersection - robot_pos[0])
+            return x_intersection, y_intersection
+
+        def distance_between_points(p1, p2):
+            return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+        m_start = slope_from_points(row_start_line[0], row_start_line[1])
+        m_end = slope_from_points(row_end_line[0], row_end_line[1])
+
+        x_start_int, y_start_int = intersection_of_robot_path_with_line(robot_position, row_start_line[0], m_start)
+        x_end_int, y_end_int = intersection_of_robot_path_with_line(robot_position, row_end_line[0], m_end)
+
+        dist_to_start = distance_between_points([x_start_int, y_start_int], robot_position[:2])
+        dist_to_end = distance_between_points([x_end_int, y_end_int], robot_position[:2])
+
+        print("dist to start: ", dist_to_start)
+        print("dist to end: ", dist_to_end)
+
+        # return dist_to_start, dist_to_end
 
 def run_pf_process(pf_update_queue, pf_return_queue, map_data):
     # Method for running the particle filter in a separate process
@@ -770,6 +813,7 @@ def run_pf_process(pf_update_queue, pf_return_queue, map_data):
             best_guess = pf_engine.particles.mean(axis=0)
             num_particles = len(pf_engine.particles)
             converged = False
+            time_stamp = None
         else:
             # Otherwise, update the particle filter with the odom data and tree data
             if odom_data is not None:
@@ -788,8 +832,10 @@ def run_pf_process(pf_update_queue, pf_return_queue, map_data):
             converged = pf_engine.check_convergence()
             num_particles = len(pf_engine.particles)
 
+            time_stamp = tree_msg['time_stamp']
+
         # Put the data back into the queue
-        pf_return_queue.put((particles, best_guess, converged, num_particles))
+        pf_return_queue.put((particles, best_guess, converged, num_particles, time_stamp))
 
 
 if __name__ == "__main__":
