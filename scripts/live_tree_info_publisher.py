@@ -10,6 +10,7 @@ import signal
 import rospy
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
+import time
 
 class TreeInfoPublisher:
     def __init__(self):
@@ -76,7 +77,7 @@ class TreeInfoPublisher:
         self.analyzer_process.start()
 
         # Wait for the processes to initialize, mostly gives the inference process time to load the model
-        rospy.sleep(3)
+        time.sleep(3)
 
         self.start_times = []
         self.time_stamps = []
@@ -132,11 +133,8 @@ class TreeInfoPublisher:
                 except CvBridgeError as e:
                     print(e)
 
-                # Save the time stamp that the images were paired. This is used as the time stamp on the published
-                # data. It could be better to use the image time stamp for that, but I found that those aren't always
-                # reliable, as they seem to use the time from the computer that the image was taken on, which doesn't
-                # nessesarily match the time elsewhere in the system.
-                current_time = rospy.get_rostime()
+                # Save the time stamp from the original image
+                current_time = self.rgb_time_stamps[idx_rgb]
                 self.time_stamps.append(current_time)
 
                 # Remove the images from the lists
