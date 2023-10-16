@@ -54,6 +54,8 @@ add_message_files(
   TreeInfoMulti.msg
   TestTreeLocation.msg
   TestTreeLocationMulti.msg
+  RowEndDistance.msg
+  PFEstimate.msg
 )
 
 ## Generate services in the 'srv' folder

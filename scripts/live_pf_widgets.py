@@ -251,7 +251,8 @@ class ParticleMapPlotter(QMainWindow):
 
 
         # Make plot items for things that will be updated
-        self.particle_plot_item = self.plot_widget.plot([], [], pen=None, symbol='o',
+        particles1 = np.zeros(1000)
+        self.particle_plot_item = self.plot_widget.plot(particles1, particles1, pen=None, symbol='o',
                                                         symbolBrush='b', symbolSize=2, name='Particles')
 
         self.best_guess_plot_item = self.plot_widget.plot([], [], pen=None, symbol='o', symbolBrush='r',
@@ -272,7 +273,9 @@ class ParticleMapPlotter(QMainWindow):
         if particles is not None:
             self.particle_plot_item.setData(particles[:, 0], particles[:, 1])
         else:
-            self.particle_plot_item.setData([], [])
+            # Put 1000 particles in the corner if there are no particles
+            particles = np.zeros(1000)
+            self.particle_plot_item.setData(particles, particles)
 
 
     def update_best_guess(self, best_guess_position):

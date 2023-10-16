@@ -15,7 +15,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 import sys
 import time
 from scipy.spatial import KDTree
-from pf_trunk_width.msg import TreeInfoMulti, TestTreeLocation, TestTreeLocationMulti
+from pf_trunk_width.msg import TreeInfoMulti, TestTreeLocation, TestTreeLocationMulti, RowEndDistance, PFEstimate
 import multiprocessing as mp
 from live_pf_widgets import SettingsDialog, ParticleMapPlotter
 from env_vars import *
@@ -275,6 +275,9 @@ class ParticleFilterBagFiles:
 
         # Publisher for publishing proximity to the test trees
         self.test_tree_pub = rospy.Publisher("/orchard_pf/test_tree", TestTreeLocationMulti, queue_size=10)
+        self.row_data_pub = rospy.Publisher("/orchard_pf/row_end_distance", RowEndDistance, queue_size=10)
+        self.pf_estimate_pub = rospy.Publisher("/orchard_pf/pf_estimate", PFEstimate, queue_size=10)
+
 
         self.qt_window = MyMainWindow()
         self.qt_app = app
@@ -288,7 +291,7 @@ class ParticleFilterBagFiles:
             'r_dist': 0.7,
             'r_angle': 25,
             # 'width_sd': 0.03,
-            'width_sd': 0.04,
+            'width_sd': 0.03,
             'dist_sd': 0.45,
             # 'epsilon': 0.035,
             'epsilon': 0.025,
@@ -363,7 +366,7 @@ class ParticleFilterBagFiles:
         # self.start_height = 10
         # self.start_rotation = -32
         self.start_pose_center = [12.1, 53]
-        self.particle_density = 400
+        self.particle_density = 250
         self.start_width = 4
         self.start_height = 20
         self.start_rotation = -32
@@ -481,7 +484,7 @@ class ParticleFilterBagFiles:
         self.trunk_data_sub = rospy.Subscriber("/orchard_pf/trunk_data", TreeInfoMulti, self.trunk_data_callback)
 
         # Callback timer to get stuff out of the queue from the particle filter and plot it
-        rospy.Timer(rospy.Duration(0.1), self.update_pf_status)
+        self.update_pf_timer = rospy.Timer(rospy.Duration(0.1), self.update_pf_status)
 
         self.ros_connected = True
         self.prev_tree_data_time = None
@@ -494,6 +497,7 @@ class ParticleFilterBagFiles:
         self.odom_sub.unregister()
         self.image_sub.unregister()
         self.trunk_data_sub.unregister()
+        self.update_pf_timer.shutdown()
 
         # Empty the queues
         while not self.pf_update_queue.empty():
@@ -518,7 +522,7 @@ class ParticleFilterBagFiles:
 
         # Class is set to 5 if no trees are detected, kind of a hack way of doing it, but it works
         if trunk_data_msg.trees[0].classification == 5:
-            tree_data = {'widths': None, 'positions': None, 'classes': None, 'time_stamp': None}
+            tree_data = {'widths': None, 'positions': None, 'classes': None, 'time_stamp': trunk_data_msg.header.stamp}
         else:
             for tree_info in trunk_data_msg.trees:
                 widths.append(tree_info.width)
@@ -528,13 +532,21 @@ class ParticleFilterBagFiles:
             tree_data = {'widths': widths, 'positions': positions, 'classes': classes, 'time_stamp':
                 trunk_data_msg.header.stamp}
 
+            # # print widths and positions to gui
+            # self.qt_window.console.appendPlainText("Widths: " + str(widths))
+            # self.qt_window.console.appendPlainText("Positions: " + str(positions))
+            # # print space
+            # self.qt_window.console.appendPlainText(" ")
+            # # force the console to scroll to the bottom
+            # self.qt_window.console.verticalScrollBar().setValue(self.qt_window.console.verticalScrollBar().maximum())
+
         # Set the time if this is the first tree data message
         if self.prev_tree_data_time is None:
             self.prev_tree_data_time = trunk_data_msg.header.stamp.to_sec()
             return
         else:
             # Update the particle filter with the tree data, and the time the image was taken
-            self.update_pf(tree_data, trunk_data_msg.header.stamp.to_sec())
+            self.update_pf(tree_data)
 
     def image_callback(self, image_msg):
         # print image to gui
@@ -542,12 +554,14 @@ class ParticleFilterBagFiles:
         self.qt_window.load_image(image)
 
 
-    def update_pf(self, tree_data, tree_data_time):
+    def update_pf(self, tree_data):
         # Sort the odom messages and tree messages according to time
 
         # If ROS is not connected, don't do anything
         if not self.ros_connected:
             return
+
+        tree_data_time = tree_data['time_stamp'].to_sec()
 
         # Get the odom messages that are between the previous tree data time and the current tree data time
         start_index = next((i for i, v in enumerate(self.odom_times) if v >= self.prev_tree_data_time), 0)
@@ -591,28 +605,42 @@ class ParticleFilterBagFiles:
 
         # Get the most recent queue item and get rid of the rest
         while not self.pf_return_queue.empty():
-            self.particles, self.best_guess, self.converged, self.num_particles_cur, time_stamp = self.pf_return_queue.get(
-                block=False)
+            try:
+                self.particles, self.best_guess, self.converged, self.num_particles_cur, time_stamp = self.pf_return_queue.get(
+                    block=False)
+            except mp.queues.Empty:
+                print("Queue empty")
+                pass
+            else:
 
-        # Update the plot with the particles if the disable plotting checkbox is not checked, or if the particle filter
-        # has converged at least once
-        if self.qt_window.disable_plotting_checkbox.isChecked() and self.converged_once:
-            self.qt_window.plotter.update_particles(self.particles)
-        elif not self.qt_window.disable_plotting_checkbox.isChecked():
-            self.qt_window.plotter.update_particles(self.particles)
+                pf_estimate_msg = PFEstimate()
+                pf_estimate_msg.header.stamp = time_stamp
+                pf_estimate_msg.x = self.best_guess[0]
+                pf_estimate_msg.y = self.best_guess[1]
+                pf_estimate_msg.theta = self.best_guess[2]
+                pf_estimate_msg.converged = self.converged_once
+                self.pf_estimate_pub.publish(pf_estimate_msg)
 
-        # Update the number of particles on the GUI
-        self.qt_window.num_particles_label.setText(str(self.num_particles_cur))
+                # Update the plot with the particles if the disable plotting checkbox is not checked, or if the particle filter
+                # has converged at least once
+                if self.qt_window.disable_plotting_checkbox.isChecked() and self.converged_once:
+                    self.qt_window.plotter.update_particles(self.particles)
+                elif not self.qt_window.disable_plotting_checkbox.isChecked():
+                    self.qt_window.plotter.update_particles(self.particles)
 
-        # Update the best guess on the plot if the particle filter has converged at least once
-        if self.converged_once:
-            self.qt_window.plotter.update_best_guess(self.best_guess)
-            self.find_test_trees(self.best_guess, time_stamp)
-            self.check_end_of_row(self.best_guess, time_stamp)
-        else:
-            # Update whether the particle filter has converged once
-            if self.converged and not self.converged_once:
-                self.converged_once = True
+                # Update the number of particles on the GUI
+                self.qt_window.num_particles_label.setText(str(self.num_particles_cur))
+
+                # Update the best guess on the plot if the particle filter has converged at least once
+                if self.converged_once:
+                    self.qt_window.plotter.update_best_guess(self.best_guess)
+                    self.find_test_trees(self.best_guess, time_stamp)
+                    self.check_end_of_row(self.best_guess, time_stamp)
+                else:
+                    # Update whether the particle filter has converged once
+                    if self.converged and not self.converged_once:
+                        self.converged_once = True
+
 
     def start_stop_button_clicked(self):
         # Method for starting and stopping the particle filter when the start/stop button is clicked
@@ -726,9 +754,12 @@ class ParticleFilterBagFiles:
         # Method for handling when the plot is clicked, if shift is held down, set the particle start position to the
         # clicked location
 
-        self.plot_x_click = x
-        self.plot_y_click = y
-        if not self.pf_active:
+        if self.pf_active:
+            return
+        else:
+            self.plot_x_click = x
+            self.plot_y_click = y
+
             # Probably don't need to print to console, but, well i do
             self.qt_window.console.appendPlainText("Plot clicked at: x = " + str(round(x, 2)) + ", y = " + str(round(y, 2)))
             if shift_pressed:
@@ -766,6 +797,20 @@ class ParticleFilterBagFiles:
                 self.reset_app()
 
     def check_end_of_row(self, robot_position, time_stamp):
+        # Method for publishing info about the robot's position relative to the start and end of the row
+        # It's a bit hacky and only works for this test block
+
+        robot_angle = robot_position[2]
+
+        # Check if the angle of the robot is within 10 degrees of the row angles
+        if robot_angle > np.deg2rad(38) and robot_angle < np.deg2rad(78):
+            facing_end = True
+        elif robot_angle < -np.deg2rad(102) and robot_angle > -np.deg2rad(142):
+            facing_start = True
+        else:
+            return
+
+        # Hard coded positions of the start and end of the rows
         row_end_line = np.array([[30.7, 125.74], [55.5, 86.0]])
         row_start_line = np.array([[12.95, 97.0], [4.97, 4.38]])
 
@@ -791,10 +836,13 @@ class ParticleFilterBagFiles:
         dist_to_start = distance_between_points([x_start_int, y_start_int], robot_position[:2])
         dist_to_end = distance_between_points([x_end_int, y_end_int], robot_position[:2])
 
-        print("dist to start: ", dist_to_start)
-        print("dist to end: ", dist_to_end)
+        row_end_msg = RowEndDistance()
 
-        # return dist_to_start, dist_to_end
+        row_end_msg.row_end_distance = dist_to_end
+        row_end_msg.row_start_distance = dist_to_start
+        row_end_msg.header.stamp = time_stamp
+
+        self.row_data_pub.publish(row_end_msg)
 
 def run_pf_process(pf_update_queue, pf_return_queue, map_data):
     # Method for running the particle filter in a separate process
@@ -822,8 +870,9 @@ def run_pf_process(pf_update_queue, pf_return_queue, map_data):
                 time_stamp = odom_data['time_odom']
                 num_readings = odom_data['num_readings']
                 pf_engine.save_odom(x_odom, theta_odom, time_stamp, num_readings=num_readings)
-            if tree_msg is not None:
-                pf_engine.scan_update(tree_msg)
+
+            pf_engine.scan_update(tree_msg)
+            time_stamp = tree_msg['time_stamp']
 
             # Get 1000 random particles from the particle filter, the average of the particles, the total number of
             # particles, and whether the particle filter has converged
@@ -831,8 +880,6 @@ def run_pf_process(pf_update_queue, pf_return_queue, map_data):
             best_guess = pf_engine.particles.mean(axis=0)
             converged = pf_engine.check_convergence()
             num_particles = len(pf_engine.particles)
-
-            time_stamp = tree_msg['time_stamp']
 
         # Put the data back into the queue
         pf_return_queue.put((particles, best_guess, converged, num_particles, time_stamp))
