@@ -5,28 +5,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 import pyqtgraph as pg
 import numpy as np
 
-class ClickablePlotWidget(pg.PlotWidget):
-    # This class is for a plot widget that emits a signal when clicked about where it was clicked. It also distinguishes
-    # between a normal click and a shift-click
 
-    # Define a custom signal
-    clicked = pyqtSignal(float, float, bool)  # Signal to emit x and y coordinates
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def mousePressEvent(self, event):
-        mouse_point = self.plotItem.vb.mapSceneToView(event.pos())
-        x = mouse_point.x()
-        y = mouse_point.y()
-
-        # Check if Shift key is pressed
-        if event.modifiers() & Qt.ShiftModifier:
-            self.clicked.emit(x, y, True)
-        else:
-            self.clicked.emit(x, y, False)
-
-        super().mousePressEvent(event)
 
 class SettingsDialog(QDialog):
     # This class is for a dialog box that allows the user to change settings for the particle filter
@@ -155,6 +134,34 @@ class SettingsDialog(QDialog):
         except ValueError:
             return None
 
+class ClickablePlotWidget(pg.PlotWidget):
+    # This class is for a plot widget that emits a signal when clicked about where it was clicked. It also distinguishes
+    # between a normal click and a shift-click
+
+    # Define a custom signal
+    clicked = pyqtSignal(float, float, bool)  # Signal to emit x and y coordinates
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.is_repainting = False
+
+    def mousePressEvent(self, event):
+        mouse_point = self.plotItem.vb.mapSceneToView(event.pos())
+        x = mouse_point.x()
+        y = mouse_point.y()
+
+        # Check if Shift key is pressed
+        if event.modifiers() & Qt.ShiftModifier:
+            self.clicked.emit(x, y, True)
+        else:
+            self.clicked.emit(x, y, False)
+
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        self.is_repainting = True
+        super().paintEvent(event)
+        self.is_repainting = False
 
 class ParticleMapPlotter(QMainWindow):
     # Class to handle all the plotting for the particle filter app
